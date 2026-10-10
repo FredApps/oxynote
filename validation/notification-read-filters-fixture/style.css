@@ -1,0 +1,47 @@
+@import 'tailwindcss' source(none);
+@source './subject/app/components/NotificationBox.vue';
+@source './subject/app/components/NotificationRow.vue';
+@source './subject/app/components/shadcn/ui/button';
+@source './subject/app/components/shadcn/ui/avatar';
+
+@theme {
+  --color-background: #fefefe;
+  --color-foreground: #242424;
+  --color-border: #e5e5e5;
+  --color-accent: #ececec;
+  --color-accent-foreground: #242424;
+  --color-muted: #f3f3f3;
+  --color-muted-foreground: #737373;
+  --color-hook-status-triggered: #315277;
+  --color-hook-status-needs-attention: #a66b12;
+  --text-2sm: 0.8125rem;
+  --text-2xs: 0.6875rem;
+  --z-index-navbar: 20;
+}
+
+body { margin: 0; font: 0.875rem/1.45 system-ui, sans-serif; color: #242424; background: #f4f6f8; }
+.fixture-layout { max-width: 92rem; margin: 0 auto; padding: 1.5rem; display: grid; grid-template-columns: minmax(20rem, 28rem) minmax(26rem, 1fr); gap: 1.25rem; }
+.fixture-intro { grid-column: 1 / -1; }
+.fixture-intro h1 { font-size: 1.35rem; font-weight: 650; margin-bottom: 0.4rem; }
+.fixture-intro p { max-width: 70rem; }
+.fixture-source { margin-top: 0.5rem; font-family: monospace; font-size: 0.75rem; }
+.fixture-subject { border: 0.0625rem solid #d6dae1; border-radius: 0.5rem; overflow: hidden; background: white; height: 39rem; }
+.fixture-subject > aside { height: 100%; }
+.fixture-subject > aside > div:last-child { min-height: 0; }
+.fixture-controls { min-width: 0; background: white; border: 0.0625rem solid #d6dae1; border-radius: 0.5rem; padding: 1rem; }
+.fixture-controls h2, .fixture-controls h3 { font-weight: 650; margin-bottom: 0.5rem; }
+.fixture-controls h3 { margin-top: 1rem; }
+.fixture-controls p { margin-bottom: 0.65rem; }
+.fixture-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.8rem; align-items: center; }
+.fixture-actions label { display: inline-flex; gap: 0.35rem; align-items: center; }
+.fixture-actions input[type='number'] { width: 5rem; border: 0.0625rem solid #bbb; padding: 0.2rem; }
+.fixture-button { padding: 0.4rem 0.65rem; border: 0.0625rem solid #bdc7d3; border-radius: 0.35rem; background: #f5f7fa; cursor: pointer; }
+.fixture-button:hover { background: #eaf0f8; }
+.fixture-button:disabled { opacity: 0.4; cursor: default; }
+.fixture-log { max-height: 19rem; overflow: auto; margin-top: 0.7rem; border: 0.0625rem solid #ddd; border-radius: 0.3rem; }
+.fixture-log-entry { padding: 0.45rem 0.65rem; border-bottom: 0.0625rem solid #eee; font: 0.75rem/1.5 monospace; overflow-wrap: anywhere; }
+.fixture-controls summary { cursor: pointer; margin-top: 0.4rem; }
+.fixture-controls pre { max-height: 20rem; overflow: auto; font-size: 0.7rem; }
+.fixture-error { background: #ffe7e7; padding: 1rem; white-space: pre-wrap; }
+[data-fixture-icon] { display: inline-flex; align-items: center; justify-content: center; font-size: 0.8em; }
+@media (max-width: 55rem) { .fixture-layout { grid-template-columns: 1fr; } }

@@ -1,0 +1,26 @@
+{
+  "sourceRepository": "FredApps/oxynote",
+  "sourceCommit": "5863f7607bcf8cfbca67a2c0f16135b92d93f6ca",
+  "files": {
+    "web/app/components/NotificationBox.vue": "eaa75259fdbfd3ec580087609fe60114da104dcddb11d0eac27be590654cdbc5",
+    "web/app/components/NotificationRow.vue": "301d2b65d0f2ad26642fb45f681a2cd8e4769dd27c6d593353429bed874f1a34",
+    "web/app/components/notification.ts": "901b860c822e1ce232668000288e66e66d88ac80b8a05c7de406d96a1c2e5d0f",
+    "web/app/components/sidebar.ts": "b9c3e2758568d18f70ca747f7f7b4c832efa33ae330db3c97fd2c48c3823a7c7",
+    "web/app/components/shadcn/ui/button/Button.vue": "9b397bcd16658f72c7312615d353c6b80b65dde00149ed6f23388ebad9895894",
+    "web/app/components/shadcn/ui/button/index.ts": "c6e3062057b42cf8d245f59192cabc1d4a022b3a918f767c9823969190266050",
+    "web/app/components/shadcn/ui/avatar/Avatar.vue": "c12baab25540e7b4e5e81f90b8b9f5f2786d8cc223e76a46db5b154d172bac69",
+    "web/app/components/shadcn/ui/avatar/AvatarImage.vue": "60c0a802ae3c8f9e6b1b814b17bac445ed61324a94eb815c6b8697b8c2c03279",
+    "web/app/components/shadcn/ui/avatar/AvatarFallback.vue": "b3d8c67d83a53a8828a18a9d02c9535bc1928ade40542bf0644212876fbe13d3",
+    "web/app/composables/api/useNotificationAPI.ts": "5343011d8fa2d6107c843cc8b7d14de76fd58caf3e7656fc2f97e6d436f2df2f",
+    "web/app/utils/api/notification.ts": "80a1137e1fa4646095578a023d6535f2b7205eb4ae0cc3fe09650fcceea5e1c5",
+    "web/app/utils/api/document.ts": "4f0acb623c74da803b3d51549d12d13ba52c98b170c6216fffacf7f7df201417",
+    "web/app/utils/object.ts": "935b29f855ee679e2c8bde95da05726608d6f90cf1f9f09469dd06b26a30daed",
+    "web/app/utils/json.ts": "fd42170a23559a54619d059d729cd8567a60c30ef61f33a593768c7f0cebc73a",
+    "web/app/utils/time.ts": "17121e0786fb46f7dbb299d2eb4ac4202ecb0d5e5da4062be314bf5b0690f968",
+    "web/app/utils/url.ts": "1eb2555506f7f496bd8ab6afdd1a750d072f0e5ae85e6861049987f009b51d0f",
+    "web/app/lib/utils.ts": "49ca975b829471192e8a2c8a49cea9436033e13f8e202c2f7f50389d23db00ad",
+    "web/i18n/locales/en/notification.json": "342a82b3d0547911332cbc85f385b45c5f509acb6e9fb92f36e88821949daa34",
+    "web/i18n/locales/en/general.json": "88e048e1f0887aec12497f6f962baae8ed0496cd4004467937f708efdabce871",
+    "web/colada.options.ts": "a665c12d712363263ff398ef6d9c48a3e26949e6c195eb8e032106b2c23bf4d0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "oxynote-notification-synthetic-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4173 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort"
+  }
+}
