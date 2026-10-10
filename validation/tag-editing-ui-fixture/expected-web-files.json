@@ -1,0 +1,12 @@
+{
+  "app/components/AppSidebar.nuxt.test.ts": "a3fd5fdd4bb2ef49b6a473fcc12d980aea577306b5f0b84259899acbbc7ec84f",
+  "app/components/AppSidebar.vue": "7418bc470d53baecd94a2bf4e64de65dd0a395da8110379534bb6558f416c596",
+  "app/components/TagEditModal.nuxt.test.ts": "2dffb077f9d378ef8b0175ee838f19e4f5638157be012f8e204508250b1a6d1f",
+  "app/components/TagEditModal.vue": "73b3e24ef365d4fb1a917260aa83d2570c48f4809dfd11f4f2fa99e5876440a9",
+  "app/components/editor/DocumentTagList.nuxt.test.ts": "7864605b6cdbb179b34c32a70f1e3c4fdb1464ace31bd4b604dc4510add6ca5b",
+  "app/composables/api/useTagAPI.nuxt.test.ts": "c5edcdf419f040273ac6662dca03b037e4ffc592aa71ab405268dde36fe67ee8",
+  "app/composables/api/useTagAPI.ts": "3c100c7a1308291610ca949312ce056de15f8a772a1ad740253dec208e2634f6",
+  "app/pages/[[organizationSlug]]/[[documentSlug]].vue": "8aef87f57fd3dcb40bd84b2547efa6232ecf90aef4a93ba6438da93bbaae097c",
+  "app/utils/api/tag.ts": "35f8e87c7ced16c687b3211dc076dd602e5506f92eca4c9d59f0772865932628",
+  "i18n/locales/en/sidebar.json": "75aa1c795d0ee8db683301af626b17b4549296d44e97a98a244643ccbf09aadd"
+}

@@ -1,0 +1,3 @@
+PASS Vue script/template compile app/components/TagEditValidation.client.vue
+PASS Vue script/template compile app/pages/tag-edit-validation.vue
+PASS mock API: auth, rename, colour, combined, duplicate, failure/retry, empty/invalid input, assignment preservation, unrelated-write guard, reset
