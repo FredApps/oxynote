@@ -171,7 +171,7 @@ function openSettings() {
 										{{ $t("editor.metrics.simulation.tooltip") }}
 									</ShadcnUiTooltipContent>
 								</ShadcnUiTooltip>
-								<div class="flex flex-col gap-0.5 md:gap-1">
+								<div class="flex flex-col items-end gap-0.5 md:gap-1">
 									<ShadcnUiSelect v-model="config.timeRange">
 										<ShadcnUiSelectTrigger
 											disable-default-styles
@@ -186,7 +186,7 @@ function openSettings() {
 														'gap-1 bg-muted-50-real text-2sm text-foreground md:bg-none',
 														isEditingDisabled &&
 															'pointer-events-none select-text',
-														isTimeRangeModified && 'bg-diff-field-added',
+														isTimeRangeModified && 'bg-diff-field-added px-0.5',
 													)
 												"
 											>
@@ -223,7 +223,7 @@ function openSettings() {
 												'gap-1 bg-muted-50-real text-2sm text-foreground md:bg-none',
 												isEditingDisabled && 'pointer-events-none select-text',
 												isTimeRangeModified &&
-													'bg-diff-field-removed md:bg-diff-field-removed',
+													'bg-diff-field-removed px-0.5 md:bg-diff-field-removed',
 											)
 										"
 									>
@@ -235,7 +235,7 @@ function openSettings() {
 										}}
 									</ShadcnUiButton>
 								</div>
-								<div class="flex flex-col gap-0.5 md:gap-1">
+								<div class="flex flex-col items-end gap-0.5 md:gap-1">
 									<ShadcnUiSelect v-model="config.refreshInterval">
 										<ShadcnUiSelectTrigger
 											disable-default-styles
@@ -250,7 +250,8 @@ function openSettings() {
 														'gap-1 bg-muted-50-real text-2sm text-foreground md:bg-none',
 														isEditingDisabled &&
 															'pointer-events-none select-text',
-														isRefreshIntervalModified && 'bg-diff-field-added',
+														isRefreshIntervalModified &&
+															'bg-diff-field-added px-0.5',
 													)
 												"
 											>
@@ -289,7 +290,7 @@ function openSettings() {
 												'gap-1 bg-muted-50-real text-2sm text-foreground md:bg-none',
 												isEditingDisabled && 'pointer-events-none select-text',
 												isRefreshIntervalModified &&
-													'bg-diff-field-removed md:bg-diff-field-removed',
+													'bg-diff-field-removed px-0.5 md:bg-diff-field-removed',
 											)
 										"
 									>

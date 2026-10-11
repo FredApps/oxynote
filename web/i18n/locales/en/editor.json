@@ -823,7 +823,6 @@
 				"legend-format-placeholder": "{'{{'}some label{'}}'} {'{{'}another label{'}}'}",
 				"legend-format-empty-value-placeholder": "[empty]",
 				"time-range-label": "Time Range",
-				"time-range-placeholder": "Select time range",
 				"time-range-options": {
 					"last_5_minutes": "Last 5 minutes",
 					"last_15_minutes": "Last 15 minutes",
@@ -855,7 +854,6 @@
 					"previous_year": "Previous year"
 				},
 				"refresh-interval-label": "Refresh Interval",
-				"refresh-interval-placeholder": "Select refresh interval",
 				"refresh-interval-options": {
 					"5s": "5 seconds",
 					"10s": "10 seconds",
