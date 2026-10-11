@@ -33,8 +33,8 @@ const (
 	_minPartialWord = 4
 )
 
-// _iconsJSON is the picker's icon list, in the picker's order. The web
-// test in web/app/utils/icon.test.ts keeps it equal to the list there.
+// _iconsJSON is the picker's icon list, in the picker's order.
+// scripts/check-icons.mjs keeps it equal to web/app/utils/icon.ts.
 //
 //go:embed icons.json
 var _iconsJSON []byte

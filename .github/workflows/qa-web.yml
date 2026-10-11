@@ -9,16 +9,12 @@ on:
       - main
     paths:
       - web/**
-      # the icon list test compares against core's copy.
-      - server/core/internal/assistant/icon/icons.json
       - .github/workflows/qa-web.yml
   pull_request:
     branches:
       - main
     paths:
       - web/**
-      # the icon list test compares against core's copy.
-      - server/core/internal/assistant/icon/icons.json
       - .github/workflows/qa-web.yml
 
 # a newer push supersedes the still-running workflow of the stale commit
