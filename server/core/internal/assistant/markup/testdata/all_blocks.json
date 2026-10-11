@@ -309,7 +309,7 @@
    "type": "calloutBlock",
    "attrs": {
     "uid": "c1",
-    "icon": "lucide:info"
+    "icon": "mingcute:information-fill"
    },
    "content": [
     {

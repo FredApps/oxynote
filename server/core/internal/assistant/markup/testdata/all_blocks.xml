@@ -17,7 +17,7 @@
   <task id="ti1" checked="true">Done</task>
   <task id="ti2">Open</task>
 </tasks>
-<callout id="c1" icon="lucide:info">
+<callout id="c1" icon="mingcute:information-fill">
   <p id="c1p">Callout</p>
   <ul id="cl">
     <li id="cli">In callout</li>

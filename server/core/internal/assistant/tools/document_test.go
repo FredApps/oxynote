@@ -323,6 +323,13 @@ func Test_createDocumentArgs_Validate(t *testing.T) {
 	assertValidate(t, createDocumentArgs{Name: "n"}, map[string]Args{
 		"name": createDocumentArgs{},
 	})
+
+	require.NoError(t, createDocumentArgs{Name: "n", Icon: "mingcute:rocket-fill"}.Validate())
+
+	// an icon the picker does not offer is refused, naming close ones.
+	err := createDocumentArgs{Name: "n", Icon: "lucide:rocket"}.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mingcute:rocket-fill")
 }
 
 func Test_createDocument_Info(t *testing.T) {
@@ -395,7 +402,7 @@ func Test_createDocument_Execute(t *testing.T) {
 		},
 		"Created under a parent": {
 			DB:     stubCreateDB(nil),
-			Args:   `{"name":"Runbook","icon":"lucide:rocket","parent_id":"` + parentID.String() + `"}`,
+			Args:   `{"name":"Runbook","icon":"mingcute:rocket-fill","parent_id":"` + parentID.String() + `"}`,
 			Notify: 1,
 		},
 	}
@@ -616,7 +623,7 @@ func Test_updateDocumentArgs_Validate(t *testing.T) {
 	})
 
 	// any one change is enough, and the root is a change.
-	require.NoError(t, updateDocumentArgs{DocumentID: _testDocID, Icon: "i"}.Validate())
+	require.NoError(t, updateDocumentArgs{DocumentID: _testDocID, Icon: "mingcute:rocket-fill"}.Validate())
 	require.NoError(t, updateDocumentArgs{DocumentID: _testDocID, ParentID: &root}.Validate())
 
 	// a call that changes nothing is refused, named by what it takes.
@@ -628,6 +635,11 @@ func Test_updateDocumentArgs_Validate(t *testing.T) {
 	err = updateDocumentArgs{DocumentID: _testDocID, ParentID: &bad}.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parent_id")
+
+	// an icon the picker does not offer is refused, naming close ones.
+	err = updateDocumentArgs{DocumentID: _testDocID, Icon: "lucide:rocket"}.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mingcute:rocket-fill")
 }
 
 func Test_updateDocumentArgs_parent(t *testing.T) {
@@ -709,8 +721,8 @@ func Test_updateDocument_Summary(t *testing.T) {
 		"Icon":      {Args: doc + `,"icon":"mingcute:rocket-fill"}`, Result: "Set the icon to mingcute:rocket-fill"},
 		"Root":      {Args: doc + `,"parent_id":""}`, Result: "Move it to the org root"},
 		"Parent":    {Args: doc + `,"parent_id":"` + xid.New().String() + `"}`, Result: "Move it under another document"},
-		"Two":       {Args: doc + `,"name":"Playbook","icon":"i"}`, Result: `Rename Runbook to "Playbook" and set the icon to i`},
-		"All three": {Args: doc + `,"name":"Playbook","icon":"i","parent_id":""}`, Result: `Rename Runbook to "Playbook", set the icon to i and move it to the org root`},
+		"Two":       {Args: doc + `,"name":"Playbook","icon":"mingcute:rocket-fill"}`, Result: `Rename Runbook to "Playbook" and set the icon to mingcute:rocket-fill`},
+		"All three": {Args: doc + `,"name":"Playbook","icon":"mingcute:rocket-fill","parent_id":""}`, Result: `Rename Runbook to "Playbook", set the icon to mingcute:rocket-fill and move it to the org root`},
 	}
 
 	for cn, c := range cc {
@@ -799,20 +811,20 @@ func Test_updateDocument_Execute(t *testing.T) {
 		"Icon set": {
 			DB:      stubDocumentDB(),
 			Applier: stubApplier(),
-			Args:    doc + `,"icon":"i"}`,
+			Args:    doc + `,"icon":"mingcute:rocket-fill"}`,
 			Ops:     1,
 			Notify:  1,
-			Result:  `{"document_id":"` + _testDocID.String() + `","icon":"i"}`,
+			Result:  `{"document_id":"` + _testDocID.String() + `","icon":"mingcute:rocket-fill"}`,
 		},
 		// name and icon travel in one batch, so the live document
 		// changes once.
 		"Renamed and icon set": {
 			DB:      stubDocumentDB(),
 			Applier: stubApplier(),
-			Args:    doc + `,"name":"Playbook","icon":"i"}`,
+			Args:    doc + `,"name":"Playbook","icon":"mingcute:rocket-fill"}`,
 			Ops:     2,
 			Notify:  1,
-			Result:  `{"document_id":"` + _testDocID.String() + `","name":"Playbook","icon":"i"}`,
+			Result:  `{"document_id":"` + _testDocID.String() + `","name":"Playbook","icon":"mingcute:rocket-fill"}`,
 		},
 		"Error returned by db.CheckDocumentExists": {
 			DB:      moveDB(assert.AnError, false, nil, nil),

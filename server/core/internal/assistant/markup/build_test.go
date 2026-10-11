@@ -2,11 +2,13 @@ package markup
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/oxynote/oxynote/server/core/internal/assistant/icon"
 	"github.com/oxynote/oxynote/server/core/internal/document"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/stretchr/testify/assert"
@@ -191,9 +193,26 @@ func Test_Build(t *testing.T) {
 		"Id used twice":           {Markup: `<p id="p2">x</p><p id="p2">y</p>`, Stored: root, Err: errors.New(`line 1: id "p2" is used twice; leave it out of the copy`)},
 		"Text outside an element": {Markup: "hello", Err: errors.New("line 1: text in the markup has to sit in an element such as <p>")},
 		"Text in a container":     {Markup: "<callout>hi</callout>", Err: errors.New("line 1: text in <callout> has to sit in an element such as <p>")},
-		"Tag in a heading":        {Markup: "<h2>a <b>b</b></h2>", Err: errors.New("line 1: a heading takes plain text, so <b> is not allowed in it")},
-		"Block inside text":       {Markup: "<p>a <hr/></p>", Err: errors.New("line 1: <hr> is a block; it cannot sit inside text")},
-		"Link to a script":        {Markup: `<p><a href=" Java	Script:alert(1)">x</a></p>`, Err: errors.New("line 1: a link cannot use javascript:; link to a web address instead")},
+		"Callout icon the picker lacks": {
+			Markup: `<callout icon="lucide:rocket"><p>x</p></callout>`,
+			Err:    fmt.Errorf("line 1: %w", icon.Validate("lucide:rocket")),
+		},
+		"Callout with the default icon": {
+			Markup: `<callout icon="lucide:text"><p>x</p></callout>`,
+			Result: "<callout icon=\"lucide:text\">\n  <p>x</p>\n</callout>\n",
+		},
+		"Kept callout keeps an icon the picker lacks": {
+			Markup: `<callout id="c1" icon="lucide:info"><p>x</p></callout>`,
+			Stored: document.RootBlock{Content: []document.Block{{
+				Type:    document.BlockNodeCalloutBlock,
+				Attrs:   document.Attributes{document.AttrUID: "c1", document.AttrIcon: "lucide:info"},
+				Content: []document.Block{{Type: document.BlockNodeParagraph}},
+			}}},
+			Result: "<callout icon=\"lucide:info\">\n  <p>x</p>\n</callout>\n",
+		},
+		"Tag in a heading":  {Markup: "<h2>a <b>b</b></h2>", Err: errors.New("line 1: a heading takes plain text, so <b> is not allowed in it")},
+		"Block inside text": {Markup: "<p>a <hr/></p>", Err: errors.New("line 1: <hr> is a block; it cannot sit inside text")},
+		"Link to a script":  {Markup: `<p><a href=" Java	Script:alert(1)">x</a></p>`, Err: errors.New("line 1: a link cannot use javascript:; link to a web address instead")},
 		// links a person stored may use any other scheme, or not even
 		// parse, and a write that keeps them has to go through.
 		"Links of other schemes stay": {

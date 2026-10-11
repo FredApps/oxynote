@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oxynote/oxynote/server/core/internal/assistant/icon"
 	"github.com/oxynote/oxynote/server/core/internal/document"
 	"github.com/oxynote/oxynote/server/core/pkg/strutil"
 )
@@ -239,7 +240,17 @@ func (b *builder) buildContainer(n node, typ document.BlockNodeType, child strin
 
 	switch typ {
 	case document.BlockNodeCalloutBlock:
-		blk.Attrs[document.AttrIcon] = cmp.Or(n.attrs[document.AttrIcon], _defaultCalloutIcon)
+		id := cmp.Or(n.attrs[document.AttrIcon], _defaultCalloutIcon)
+
+		// the default and a kept callout's own icon may be outside the
+		// picker's list. Both pass, since the caller did not pick them.
+		if id != _defaultCalloutIcon && id != stored.Attrs.Get(document.AttrIcon).String() {
+			if err := icon.Validate(id); err != nil {
+				return document.Block{}, fmt.Errorf("line %d: %w", n.line, err)
+			}
+		}
+
+		blk.Attrs[document.AttrIcon] = id
 	case document.BlockNodeOrderedList:
 		if start, err := strconv.Atoi(n.attrs[document.AttrStart]); err == nil && start > 1 {
 			blk.Attrs[document.AttrStart] = start

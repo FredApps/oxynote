@@ -9,6 +9,7 @@ import { icons as ph } from "@iconify-json/ph"
 import { icons as ri } from "@iconify-json/ri"
 import { icons as simpleIcons } from "@iconify-json/simple-icons"
 import { describe, it } from "vitest"
+import coreIcons from "~/../../server/core/internal/assistant/icon/icons.json"
 import { selectableIconList, selectableIcons } from "./icon"
 
 const collections: Record<string, IconifyJSON | undefined> = {
@@ -22,6 +23,15 @@ const collections: Record<string, IconifyJSON | undefined> = {
 	ri,
 	"simple-icons": simpleIcons,
 }
+
+describe("selectableIcons", () => {
+	// the assistant refuses icons outside its own copy of this list.
+	it("matches the list core validates assistant icons against", ({
+		expect,
+	}) => {
+		expect(selectableIcons).toEqual(coreIcons)
+	})
+})
 
 describe("selectableIconList", () => {
 	it("returns the id of every selectable icon in order", ({ expect }) => {

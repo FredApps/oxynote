@@ -18,6 +18,7 @@ var _contentDescription = "The blocks as XML, one element per block. " +
 	"<hr/>; <img src alt title width/>; <figma src width height/>; <metrics> of <metric>, which holds a JSON object of its attributes; " +
 	"<split_doc inversed> holding <left>, an <h1> then <p>, lists or <callout> then any <params header> of <param name type>description</param>, and <right>, a titled <pre>, <metric> or <mermaid>. " +
 	"Inline text takes <b>, <i>, <u>, <s>, <code> and <a href>; outside <pre>, <mermaid> and <metric>, whose content is raw, write & as &amp; and < as &lt;. " +
+	"A callout's icon takes the ids create_document's icon does. " +
 	"Mermaid ends a gantt task name or timeline period at its first colon, so write a colon inside one as #58;. " +
 	"A metric's attributes: " + markup.MetricReference() + "."
 

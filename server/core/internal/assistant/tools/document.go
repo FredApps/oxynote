@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/guregu/null/v5"
+	"github.com/oxynote/oxynote/server/core/internal/assistant/icon"
 	"github.com/oxynote/oxynote/server/core/internal/assistant/markup"
 	"github.com/oxynote/oxynote/server/core/internal/document"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
@@ -267,7 +268,7 @@ type createDocumentArgs struct {
 	// Name is the new document's display name. Required.
 	Name string `json:"name"`
 
-	// Icon is the lucide icon identifier. Empty falls back to the
+	// Icon is an icon id the picker offers. Empty falls back to the
 	// default icon.
 	Icon string `json:"icon"`
 
@@ -282,6 +283,10 @@ func (a createDocumentArgs) Validate() error {
 		return errRequired("name")
 	}
 
+	if a.Icon != "" {
+		return icon.Validate(a.Icon)
+	}
+
 	return nil
 }
 
@@ -293,7 +298,7 @@ func (createDocument) Info() Info {
 		Description: "Create a document and return {document_id, branch_id}, the branch_id being its default branch. It starts with one empty paragraph; fill it with insert_blocks at position end on that branch.",
 		Properties: map[string]any{
 			"name":            map[string]any{"type": "string", "description": "The display name."},
-			document.AttrIcon: map[string]any{"type": "string", "description": "Optional. An Iconify id; the sidebar uses MingCute fills, such as mingcute:file-code-fill. Defaults to mingcute:document-2-fill."},
+			document.AttrIcon: map[string]any{"type": "string", "description": "Optional. An Iconify id from the icon picker, mostly MingCute fills such as mingcute:file-code-fill; another id is refused, naming the closest ones. Defaults to mingcute:document-2-fill."},
 			"parent_id":       map[string]any{"type": "string", "description": "Optional. The parent document id; omit it for the organisation root."},
 		},
 		Required: []string{"name"},
@@ -324,14 +329,14 @@ func (createDocument) Execute(inp *input) (string, error) {
 		return "", err
 	}
 
-	icon := in.Icon
-	if icon == "" {
-		icon = "mingcute:document-2-fill"
+	iconID := in.Icon
+	if iconID == "" {
+		iconID = "mingcute:document-2-fill"
 	}
 
 	doc := document.NewDocument(document.CreateInput{
 		Name:     in.Name,
-		Icon:     icon,
+		Icon:     iconID,
 		ParentID: in.ParentID,
 	}, inp.orgID, inp.userID)
 
@@ -448,6 +453,12 @@ func (a updateDocumentArgs) Validate() error {
 		return errors.New("give at least one of name, icon or parent_id")
 	}
 
+	if a.Icon != "" {
+		if err := icon.Validate(a.Icon); err != nil {
+			return err
+		}
+	}
+
 	if a.ParentID != nil && *a.ParentID != "" {
 		if _, err := xid.FromString(*a.ParentID); err != nil {
 			return fmt.Errorf("parent_id: %w", err)
@@ -511,7 +522,7 @@ func (updateDocument) Info() Info {
 		Properties: map[string]any{
 			"document_id":     map[string]any{"type": "string", "description": _documentIDDescription},
 			"name":            map[string]any{"type": "string", "description": "Optional. The new display name."},
-			document.AttrIcon: map[string]any{"type": "string", "description": "Optional. An Iconify id; the sidebar uses MingCute fills, such as mingcute:rocket-fill."},
+			document.AttrIcon: map[string]any{"type": "string", "description": "Optional. An Iconify id from the icon picker, mostly MingCute fills such as mingcute:rocket-fill; another id is refused, naming the closest ones."},
 			"parent_id":       map[string]any{"type": "string", "description": "Optional. The new parent document id, or an empty string for the organisation root."},
 		},
 		Required: []string{"document_id"},
