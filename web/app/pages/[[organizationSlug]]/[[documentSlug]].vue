@@ -792,6 +792,8 @@ function clearLinkedBlock() {
 									:all-initial-sections-loaded="allSectionsLoaded"
 									:timestamps="timestamps"
 									@click="clearLinkedBlock"
+									@dragstart="clearLinkedBlock"
+									@keydown="clearLinkedBlock"
 									@updated-live-name="applyDocumentNameChange"
 									@updated-live-icon="applyIconChange"
 									@branch-merged="handleBranchMerge"
