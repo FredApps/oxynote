@@ -21,6 +21,7 @@ const emit = defineEmits<{
 		e:
 			| "initial-load-complete"
 			| "toggle-notifications"
+			| "toggle-search"
 			| "toggle-shortcuts"
 			| "toggle-settings",
 	): void
@@ -45,7 +46,6 @@ const { useFetchNotificationCount } = useNotificationAPI()
 const fetchNotificationCount = useFetchNotificationCount({ read: false })
 const editorStore = useEditorStore()
 const { openExternalLink } = useExternalLinks()
-const isSearchModalOpen = ref(false)
 const wsState = useWebSocketStateStore()
 let unsubWsTreeChange: (() => void) | null | undefined = null
 let unsubWsTagTreeChange: (() => void) | null | undefined = null
@@ -56,7 +56,7 @@ useShortcut(SHORTCUT_ACTIONS.toggleSidebar.keyboardKey, () => {
 	toggleSidebar()
 })
 useShortcut(SHORTCUT_ACTIONS.searchForDocuments.keyboardKey, () => {
-	isSearchModalOpen.value = !isSearchModalOpen.value
+	emit("toggle-search")
 })
 useShortcut(SHORTCUT_ACTIONS.toggleInbox.keyboardKey, () => {
 	emit("toggle-notifications")
@@ -152,7 +152,7 @@ const sections = computed<Section[]>(() => {
 			name: t("sidebar.sections.top.search-button"),
 			icon: "lucide:search",
 			onClick: () => {
-				isSearchModalOpen.value = true
+				emit("toggle-search")
 			},
 			acceptsChildren: false,
 			active: false,
@@ -588,6 +588,5 @@ async function installSlack() {
 				</ShadcnUiSidebarFooter>
 			</div>
 		</Transition>
-		<SearchModal v-model="isSearchModalOpen" />
 	</ShadcnUiSidebar>
 </template>

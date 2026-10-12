@@ -310,7 +310,7 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 		)
 	})
 
-	it("asks to open the search modal from the search row", async ({
+	it("asks to toggle the search modal from the search row", async ({
 		expect,
 	}) => {
 		stubQueries()
@@ -320,9 +320,7 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 			"click",
 		)
 
-		expect(
-			document.body.querySelector("[data-slot='dialog-content']"),
-		).not.toBeNull()
+		expect(sidebar(wrapper).emitted("toggle-search")).toHaveLength(1)
 	})
 
 	it("asks to toggle the notification sidebar from the inbox row", async ({

@@ -140,6 +140,7 @@ const createLoading = ref(false)
 const settingModalOpen = ref<
 	boolean | "org-members" | "github" | "metric-data-sources"
 >(false)
+const searchModalOpen = ref(false)
 const shortcutsModalOpen = ref(false)
 const pendingDocDeletion = ref<{
 	deleteDocument: () => Promise<void>
@@ -743,6 +744,7 @@ function clearLinkedBlock() {
 				@delete-document="handleDocumentDeletion"
 				@delete-tag="handleTagDeletion"
 				@open-settings="(target) => (settingModalOpen = target)"
+				@toggle-search="searchModalOpen = !searchModalOpen"
 				@toggle-settings="settingModalOpen = !settingModalOpen"
 				@toggle-shortcuts="shortcutsModalOpen = !shortcutsModalOpen"
 				@toggle-notifications="toggleNotificationSidebar"
@@ -753,6 +755,7 @@ function clearLinkedBlock() {
 				v-model="settingModalOpen"
 				@refresh-organization-slug="refreshOrganizationRouteSlug"
 			/>
+			<SearchModal v-model="searchModalOpen" />
 			<ShortcutModal v-model="shortcutsModalOpen" />
 			<EditorBlocksMetricsConfigModalBaseModal
 				@open-settings="() => (settingModalOpen = 'metric-data-sources')"
