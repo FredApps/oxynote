@@ -18,6 +18,7 @@ import (
 	notificationCore "github.com/oxynote/oxynote/server/core/internal/notification"
 	"github.com/oxynote/oxynote/server/core/internal/search"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/oxynote/oxynote/server/core/pkg/httpserver"
 	"github.com/rs/xid"
 )
@@ -52,6 +53,12 @@ var _ DB = &DBMock{}
 //			},
 //			CountDocumentBranchesFunc: func(ctx context.Context, docID xid.ID, organizationID string) (int, error) {
 //				panic("mock out the CountDocumentBranches method")
+//			},
+//			CreateVariableFunc: func(ctx context.Context, v variable.Variable) error {
+//				panic("mock out the CreateVariable method")
+//			},
+//			CreateVariableGroupFunc: func(ctx context.Context, g variable.Group) error {
+//				panic("mock out the CreateVariableGroup method")
 //			},
 //			DeleteBranchReviewerFunc: func(ctx context.Context, branchID xid.ID, userID string, organizationID string) error {
 //				panic("mock out the DeleteBranchReviewer method")
@@ -338,6 +345,12 @@ type DBMock struct {
 
 	// CountDocumentBranchesFunc mocks the CountDocumentBranches method.
 	CountDocumentBranchesFunc func(ctx context.Context, docID xid.ID, organizationID string) (int, error)
+
+	// CreateVariableFunc mocks the CreateVariable method.
+	CreateVariableFunc func(ctx context.Context, v variable.Variable) error
+
+	// CreateVariableGroupFunc mocks the CreateVariableGroup method.
+	CreateVariableGroupFunc func(ctx context.Context, g variable.Group) error
 
 	// DeleteBranchReviewerFunc mocks the DeleteBranchReviewer method.
 	DeleteBranchReviewerFunc func(ctx context.Context, branchID xid.ID, userID string, organizationID string) error
@@ -667,6 +680,20 @@ type DBMock struct {
 			DocID xid.ID
 			// OrganizationID is the organizationID argument value.
 			OrganizationID string
+		}
+		// CreateVariable holds details about calls to the CreateVariable method.
+		CreateVariable []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// V is the v argument value.
+			V variable.Variable
+		}
+		// CreateVariableGroup holds details about calls to the CreateVariableGroup method.
+		CreateVariableGroup []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// G is the g argument value.
+			G variable.Group
 		}
 		// DeleteBranchReviewer holds details about calls to the DeleteBranchReviewer method.
 		DeleteBranchReviewer []struct {
@@ -1424,6 +1451,8 @@ type DBMock struct {
 	lockCheckOrganizationMember                   sync.RWMutex
 	lockCopyBranchTags                            sync.RWMutex
 	lockCountDocumentBranches                     sync.RWMutex
+	lockCreateVariable                            sync.RWMutex
+	lockCreateVariableGroup                       sync.RWMutex
 	lockDeleteBranchReviewer                      sync.RWMutex
 	lockDeleteDataSource                          sync.RWMutex
 	lockDeleteDocument                            sync.RWMutex
@@ -1825,6 +1854,84 @@ func (mock *DBMock) CountDocumentBranchesCalls() []struct {
 	mock.lockCountDocumentBranches.RLock()
 	calls = mock.calls.CountDocumentBranches
 	mock.lockCountDocumentBranches.RUnlock()
+	return calls
+}
+
+// CreateVariable calls CreateVariableFunc.
+func (mock *DBMock) CreateVariable(ctx context.Context, v variable.Variable) error {
+	callInfo := struct {
+		Ctx context.Context
+		V   variable.Variable
+	}{
+		Ctx: ctx,
+		V:   v,
+	}
+	mock.lockCreateVariable.Lock()
+	mock.calls.CreateVariable = append(mock.calls.CreateVariable, callInfo)
+	mock.lockCreateVariable.Unlock()
+	if mock.CreateVariableFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateVariableFunc(ctx, v)
+}
+
+// CreateVariableCalls gets all the calls that were made to CreateVariable.
+// Check the length with:
+//
+//	len(mockedDB.CreateVariableCalls())
+func (mock *DBMock) CreateVariableCalls() []struct {
+	Ctx context.Context
+	V   variable.Variable
+} {
+	var calls []struct {
+		Ctx context.Context
+		V   variable.Variable
+	}
+	mock.lockCreateVariable.RLock()
+	calls = mock.calls.CreateVariable
+	mock.lockCreateVariable.RUnlock()
+	return calls
+}
+
+// CreateVariableGroup calls CreateVariableGroupFunc.
+func (mock *DBMock) CreateVariableGroup(ctx context.Context, g variable.Group) error {
+	callInfo := struct {
+		Ctx context.Context
+		G   variable.Group
+	}{
+		Ctx: ctx,
+		G:   g,
+	}
+	mock.lockCreateVariableGroup.Lock()
+	mock.calls.CreateVariableGroup = append(mock.calls.CreateVariableGroup, callInfo)
+	mock.lockCreateVariableGroup.Unlock()
+	if mock.CreateVariableGroupFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateVariableGroupFunc(ctx, g)
+}
+
+// CreateVariableGroupCalls gets all the calls that were made to CreateVariableGroup.
+// Check the length with:
+//
+//	len(mockedDB.CreateVariableGroupCalls())
+func (mock *DBMock) CreateVariableGroupCalls() []struct {
+	Ctx context.Context
+	G   variable.Group
+} {
+	var calls []struct {
+		Ctx context.Context
+		G   variable.Group
+	}
+	mock.lockCreateVariableGroup.RLock()
+	calls = mock.calls.CreateVariableGroup
+	mock.lockCreateVariableGroup.RUnlock()
 	return calls
 }
 

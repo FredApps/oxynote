@@ -7,6 +7,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/document"
 	"github.com/oxynote/oxynote/server/core/internal/document/hook"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/rs/xid"
 )
 
@@ -182,6 +183,14 @@ type DescribeInput interface {
 	// FetchTag should return the tag the id names, with the documents
 	// carrying it, for a description that has to name its subject.
 	FetchTag(tagID xid.ID) (*tag.Summary, error)
+
+	// FetchVariableGroup should return the variable group the id names,
+	// for a description that has to name its subject.
+	FetchVariableGroup(groupID xid.ID) (*variable.GroupTree, error)
+
+	// FetchVariable should return the variable the id names, for a
+	// description that has to name its subject.
+	FetchVariable(variableID xid.ID) (*variable.Entry, error)
 
 	// FetchHook should return the hook the id names on the document, for
 	// a description that has to name its subject.

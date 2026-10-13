@@ -5,25 +5,32 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	sq "github.com/Masterminds/squirrel"
 	"github.com/dchest/uniuri"
+	"github.com/guregu/null/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 	"github.com/lann/builder"
 	"github.com/orlangure/gnomock"
 	pgDocker "github.com/orlangure/gnomock/preset/postgres"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/oxynote/oxynote/server/core/pkg/cryptoutil"
 	"github.com/oxynote/oxynote/server/core/pkg/errutil"
 	"github.com/oxynote/oxynote/server/core/pkg/ioutil"
 	"github.com/oxynote/oxynote/server/core/pkg/metricutil"
+	"github.com/oxynote/oxynote/server/core/pkg/testutil"
+	"github.com/rs/xid"
+	migr "github.com/rubenv/sql-migrate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
@@ -211,6 +218,24 @@ func Test_DetectError(t *testing.T) {
 				Result: tag.ErrDuplicateTagName,
 			}
 		},
+		"Duplicate variable group name": func(*testing.T) tcase {
+			return tcase{
+				Err:    &pgconn.PgError{Code: "23505", ConstraintName: "personal_variable_groups_fk_organization_id_group_name_key"},
+				Result: variable.ErrDuplicateGroupName,
+			}
+		},
+		"Duplicate variable key": func(*testing.T) tcase {
+			return tcase{
+				Err:    &pgconn.PgError{Code: "23505", ConstraintName: "personal_variables_fk_organization_id_variable_key_key"},
+				Result: variable.ErrDuplicateKey,
+			}
+		},
+		"Unmatched foreign key": func(*testing.T) tcase {
+			return tcase{
+				Err:    &pgconn.PgError{Code: "23503", ConstraintName: "tags_fk_organization_id_fkey"},
+				Result: &pgconn.PgError{Code: "23503", ConstraintName: "tags_fk_organization_id_fkey"},
+			}
+		},
 	}
 
 	for cn, cfn := range cc {
@@ -222,6 +247,46 @@ func Test_DetectError(t *testing.T) {
 			assert.Equal(t, c.Result, DetectError(c.Err))
 		})
 	}
+}
+
+func Test_DB_migrateUp(t *testing.T) {
+	db := prepTempDB(t)
+
+	organizationID := prepOrganizations(t, db, 1)[0]
+
+	// rolling the variables migration back and forth runs its backfill
+	// over an organization that existed before it.
+	fsys, err := fs.Sub(_migrations, "migrations")
+	require.NoError(t, err)
+
+	_, err = db.migrations.ExecMax(
+		db.sql.DB,
+		"postgres",
+		&migr.HttpFileSystemMigrationSource{FileSystem: http.FS(fsys)},
+		migr.Down,
+		1,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, db.migrateUp())
+
+	tree, err := db.FetchVariableTree(context.Background(), organizationID, "")
+	require.NoError(t, err)
+	require.Len(t, tree, 1)
+	require.Len(t, tree[0].Variables, 2)
+
+	exp := variable.SeedBuiltins(organizationID)
+
+	// option ids are random on both sides, so the list default is checked
+	// against each side's own first option and then set aside.
+	for _, g := range []variable.GroupTree{exp, tree[0]} {
+		refresh := g.Variables[1]
+		assert.Equal(t, null.StringFrom(refresh.Options[0].ID.String()), refresh.DefaultValue)
+
+		g.Variables[1].DefaultValue = null.String{}
+	}
+
+	testutil.AssertFilterEqual(t, exp, tree[0], xid.ID{}, time.Time{})
 }
 
 func Test_DB_BeginTx(t *testing.T) {

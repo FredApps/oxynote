@@ -50,6 +50,12 @@ type stubHookManager struct {
 	tools.HookManager
 }
 
+// stubVariableManager satisfies the tools' VariableManager. Its methods are
+// never called.
+type stubVariableManager struct {
+	tools.VariableManager
+}
+
 // stubChatModel builds a chat model that answers with the given
 // messages in order. The last one repeats once the script runs out, so
 // a test that under-specifies gets a terminating answer rather than a
@@ -248,7 +254,8 @@ func Test_NewManager(t *testing.T) {
 			gh := &github.Manager{}
 			wc := &webchange.Client{}
 			hm := &stubHookManager{}
-			m := NewManager(discardLog(), nil, c.Pool, nil, nil, fc, nil, nil, &stubSearchTrigger{}, nil, gh, wc, hm, "claude")
+			vm := &stubVariableManager{}
+			m := NewManager(discardLog(), nil, c.Pool, nil, nil, fc, nil, nil, &stubSearchTrigger{}, nil, gh, wc, hm, vm, "claude")
 
 			require.NotNil(t, m)
 			assert.NotNil(t, m.log)
@@ -261,6 +268,7 @@ func Test_NewManager(t *testing.T) {
 			assert.Same(t, gh, m.githubMan)
 			assert.Same(t, wc, m.webchangeClient)
 			assert.Same(t, hm, m.hookMan)
+			assert.Same(t, vm, m.variableMan)
 			assert.Nil(t, m.tree)
 			assert.Nil(t, m.tags)
 
@@ -358,10 +366,11 @@ func Test_Manager_ToolSet(t *testing.T) {
 	require.NotNil(t, s)
 
 	// the set carries the full registry — the ten document tools,
-	// the five tag tools, the four hook tools, the five data-source
-	// tools and the offloaded-result reader — wired from the manager's
-	// shared dependencies and scoped to the requested pair.
-	assert.Len(t, s.Tools(), 25)
+	// the five tag tools, the eight variable tools, the four hook tools,
+	// the five data-source tools and the offloaded-result reader — wired
+	// from the manager's shared dependencies and scoped to the requested
+	// pair.
+	assert.Len(t, s.Tools(), 33)
 }
 
 func Test_Manager_claimTurn(t *testing.T) {

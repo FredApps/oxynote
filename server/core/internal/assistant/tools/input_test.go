@@ -24,6 +24,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/document/hook/processor"
 	"github.com/oxynote/oxynote/server/core/internal/search"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/oxynote/oxynote/server/core/pkg/errutil"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/rs/xid"
@@ -84,6 +85,7 @@ func testDeps(db *DBMock, applier *EditApplierMock, tree *TreeNotifierMock) *Dep
 		githubMan:       unconfiguredGithub(),
 		webchangeClient: webchange.NewClient("", ""),
 		hookMan:         stubHookManager(),
+		variableMan:     stubVariableManager(),
 		applier:         applier,
 		offload:         &offloadReaderMock{},
 		orgID:           "org",
@@ -155,6 +157,12 @@ func requiredArgs(t *testing.T, name Name) string {
 			vals[key] = _testTagID.String()
 		case "hook_id":
 			vals[key] = _testHookID.String()
+		case "group_id":
+			vals[key] = _testVariableGroupID.String()
+		case "variable_id":
+			vals[key] = _testVariableID.String()
+		case "type":
+			vals[key] = string(variable.TypeText)
 		case "settings":
 			// the stubbed hook is a scheduled reminder.
 			vals[key] = map[string]any{"type": string(hook.TypeScheduledReminder), "schedule": _stubSchedule}
@@ -191,10 +199,10 @@ func requiredArgs(t *testing.T, name Name) string {
 		}
 	}
 
-	// update_document and update_tag require nothing beyond their
-	// target, but refuse a call that changes nothing; a name is the
-	// smallest change.
-	if name == NameUpdateDocument || name == NameUpdateTag {
+	// update_document, update_tag and update_variable_group require
+	// nothing beyond their target, but refuse a call that changes
+	// nothing; a name is the smallest change.
+	if name == NameUpdateDocument || name == NameUpdateTag || name == NameUpdateVariableGroup {
 		vals["name"] = "x"
 	}
 
@@ -403,6 +411,7 @@ func Test_NewDeps(t *testing.T) {
 		gh       = unconfiguredGithub()
 		wc       = webchange.NewClient("", "")
 		hookMan  = &HookManagerMock{}
+		varMan   = &VariableManagerMock{}
 	)
 
 	runners := &DataSourceRunnersMock{
@@ -411,7 +420,7 @@ func Test_NewDeps(t *testing.T) {
 
 	trigger := &SearchTriggerMock{}
 
-	d := NewDeps(discardLog(), db, searcher, trigger, runners, gh, wc, hookMan, applier, tree, tags, offload, "org", "user")
+	d := NewDeps(discardLog(), db, searcher, trigger, runners, gh, wc, hookMan, varMan, applier, tree, tags, offload, "org", "user")
 	require.NotNil(t, d)
 
 	assert.NotNil(t, d.log)
@@ -422,6 +431,7 @@ func Test_NewDeps(t *testing.T) {
 	assert.Same(t, gh, d.githubMan)
 	assert.Same(t, wc, d.webchangeClient)
 	assert.Same(t, hookMan, d.hookMan)
+	assert.Same(t, varMan, d.variableMan)
 	assert.Same(t, applier, d.applier)
 	assert.Same(t, tree, d.tree)
 	assert.Same(t, tags, d.tags)
@@ -2339,6 +2349,379 @@ func Test_input_DeleteHook(t *testing.T) {
 			assert.Equal(t, _testHookID, ff[0].ID)
 			assert.Equal(t, _testDocID, ff[0].DocumentID)
 			assert.Equal(t, "org", ff[0].OrganizationID)
+		})
+	}
+}
+
+func Test_input_FetchVariableTree(t *testing.T) {
+	t.Parallel()
+
+	man := stubVariableManager()
+
+	tree, err := testInput(variableDeps(man), NameListVariables, `{}`).FetchVariableTree()
+	require.NoError(t, err)
+	assert.Equal(t, stubVariableTree(), tree)
+
+	ff := man.FetchTreeCalls()
+	require.Len(t, ff, 1)
+	assert.Equal(t, "org", ff[0].OrganizationID)
+	assert.Equal(t, "user", ff[0].UserID)
+}
+
+func Test_input_FetchVariableGroup(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Man    *VariableManagerMock
+		ID     xid.ID
+		Result string
+		Err    error
+	}{
+		"Error returned by VariableManager.FetchTree": {Man: failingTreeManager(), ID: _testVariableGroupID, Err: assert.AnError},
+		"Unknown group": {
+			Man: stubVariableManager(),
+			ID:  _unknownVariableID,
+			Err: fmt.Errorf("variable group %s: %w", _unknownVariableID, ErrUnknownVariableGroup),
+		},
+		"Known group": {Man: stubVariableManager(), ID: _testVariableGroupID, Result: "Environment"},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			g, err := testInput(variableDeps(c.Man), NameDeleteVariableGroup, `{}`).FetchVariableGroup(c.ID)
+			testutil.AssertEqualError(t, c.Err, err)
+
+			if err != nil {
+				return
+			}
+
+			assert.Equal(t, c.Result, g.GroupName)
+		})
+	}
+}
+
+func Test_input_FetchVariable(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Man    *VariableManagerMock
+		ID     xid.ID
+		Result string
+		Err    error
+	}{
+		"Error returned by VariableManager.FetchTree": {Man: failingTreeManager(), ID: _testVariableID, Err: assert.AnError},
+		"Unknown variable": {
+			Man: stubVariableManager(),
+			ID:  _unknownVariableID,
+			Err: fmt.Errorf("variable %s: %w", _unknownVariableID, ErrUnknownVariable),
+		},
+		"Variable of the second group": {Man: stubVariableManager(), ID: _testVariableID, Result: "region"},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			v, err := testInput(variableDeps(c.Man), NameDeleteVariable, `{}`).FetchVariable(c.ID)
+			testutil.AssertEqualError(t, c.Err, err)
+
+			if err != nil {
+				return
+			}
+
+			assert.Equal(t, c.Result, v.Key)
+		})
+	}
+}
+
+func Test_input_CreateVariableGroup(t *testing.T) {
+	t.Parallel()
+
+	man := stubVariableManager()
+	inp := variable.GroupCreateInput{GroupName: "Deploys", Color: "#f54a00"}
+
+	g, err := testInput(variableDeps(man), NameCreateVariableGroup, `{}`).CreateVariableGroup(inp)
+	require.NoError(t, err)
+	assert.Equal(t, _testVariableGroupID, g.ID)
+
+	ff := man.CreateGroupCalls()
+	require.Len(t, ff, 1)
+	assert.Equal(t, inp, ff[0].Inp)
+	assert.Equal(t, "org", ff[0].OrganizationID)
+	assert.Equal(t, "user", ff[0].UserID)
+}
+
+func Test_input_UpdateVariableGroup(t *testing.T) {
+	t.Parallel()
+
+	stub := func(err error) *VariableManagerMock {
+		return &VariableManagerMock{
+			UpdateGroupFunc: func(context.Context, xid.ID, variable.GroupUpdateInput, string) error {
+				return err
+			},
+		}
+	}
+
+	cc := map[string]struct {
+		Man *VariableManagerMock
+		Err error
+	}{
+		"Error returned by VariableManager.UpdateGroup": {
+			Man: stub(assert.AnError),
+			Err: assert.AnError,
+		},
+		"Not found": {
+			Man: stub(errutil.ErrNotFound),
+			Err: fmt.Errorf("variable group %s: %w", _testVariableGroupID, ErrUnknownVariableGroup),
+		},
+		"Successful call": {
+			Man: stub(nil),
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			err := testInput(variableDeps(c.Man), NameUpdateVariableGroup, `{}`).UpdateVariableGroup(_testVariableGroupID, variable.GroupUpdateInput{GroupName: null.StringFrom("Env")})
+			testutil.AssertEqualError(t, c.Err, err)
+
+			ff := c.Man.UpdateGroupCalls()
+			require.Len(t, ff, 1)
+			assert.Equal(t, _testVariableGroupID, ff[0].ID)
+			assert.Equal(t, variable.GroupUpdateInput{GroupName: null.StringFrom("Env")}, ff[0].Inp)
+			assert.Equal(t, "org", ff[0].OrganizationID)
+		})
+	}
+}
+
+func Test_input_DeleteVariableGroup(t *testing.T) {
+	t.Parallel()
+
+	stub := func(err error) *VariableManagerMock {
+		return &VariableManagerMock{
+			DeleteGroupFunc: func(context.Context, xid.ID, string) error {
+				return err
+			},
+		}
+	}
+
+	cc := map[string]struct {
+		Man *VariableManagerMock
+		Err error
+	}{
+		"Error returned by VariableManager.DeleteGroup": {
+			Man: stub(assert.AnError),
+			Err: assert.AnError,
+		},
+		"Not found": {
+			Man: stub(errutil.ErrNotFound),
+			Err: fmt.Errorf("variable group %s: %w", _testVariableGroupID, ErrUnknownVariableGroup),
+		},
+		"Successful call": {
+			Man: stub(nil),
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			err := testInput(variableDeps(c.Man), NameDeleteVariableGroup, `{}`).DeleteVariableGroup(_testVariableGroupID)
+			testutil.AssertEqualError(t, c.Err, err)
+
+			ff := c.Man.DeleteGroupCalls()
+			require.Len(t, ff, 1)
+			assert.Equal(t, _testVariableGroupID, ff[0].ID)
+			assert.Equal(t, "org", ff[0].OrganizationID)
+		})
+	}
+}
+
+func Test_input_CreateVariable(t *testing.T) {
+	t.Parallel()
+
+	inp := variable.Input{GroupID: _testVariableGroupID, Key: "release"}
+
+	cc := map[string]struct {
+		Man *VariableManagerMock
+		Err error
+	}{
+		"Error returned by VariableManager.CreateVariable": {
+			Man: &VariableManagerMock{
+				CreateVariableFunc: func(context.Context, variable.Input, string, string) (*variable.Variable, error) {
+					return nil, assert.AnError
+				},
+			},
+			Err: assert.AnError,
+		},
+		"Created": {Man: stubVariableManager()},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			v, err := testInput(variableDeps(c.Man), NameCreateVariable, `{}`).CreateVariable(inp)
+			testutil.AssertEqualError(t, c.Err, err)
+
+			ff := c.Man.CreateVariableCalls()
+			require.Len(t, ff, 1)
+			assert.Equal(t, inp, ff[0].Inp)
+			assert.Equal(t, "user", ff[0].UserID)
+
+			if err != nil {
+				assert.Nil(t, v)
+				return
+			}
+
+			assert.Equal(t, _testVariableID, v.ID)
+		})
+	}
+}
+
+func Test_input_UpdateVariable(t *testing.T) {
+	t.Parallel()
+
+	withUpdate := func(err error) *VariableManagerMock {
+		m := stubVariableManager()
+		m.UpdateVariableFunc = func(context.Context, xid.ID, variable.Input, string) error {
+			return err
+		}
+
+		return m
+	}
+
+	cc := map[string]struct {
+		Man     *VariableManagerMock
+		GroupID xid.ID
+		Err     error
+	}{
+		"Error returned by VariableManager.UpdateVariable": {
+			Man:     withUpdate(assert.AnError),
+			GroupID: _testVariableGroupID,
+			Err:     assert.AnError,
+		},
+		"Unknown group": {
+			Man:     withUpdate(errutil.ErrNotFound),
+			GroupID: _unknownVariableID,
+			Err:     fmt.Errorf("variable group %s: %w", _unknownVariableID, ErrUnknownVariableGroup),
+		},
+		"Unknown variable": {
+			Man:     withUpdate(errutil.ErrNotFound),
+			GroupID: _testVariableGroupID,
+			Err:     fmt.Errorf("variable %s: %w", _testVariableID, ErrUnknownVariable),
+		},
+		"Updated": {
+			Man:     withUpdate(nil),
+			GroupID: _testVariableGroupID,
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			inp := variable.Input{GroupID: c.GroupID, Key: "zone"}
+
+			err := testInput(variableDeps(c.Man), NameUpdateVariable, `{}`).UpdateVariable(_testVariableID, inp)
+			testutil.AssertEqualError(t, c.Err, err)
+
+			ff := c.Man.UpdateVariableCalls()
+			require.Len(t, ff, 1)
+			assert.Equal(t, _testVariableID, ff[0].ID)
+			assert.Equal(t, inp, ff[0].Inp)
+			assert.Equal(t, "org", ff[0].OrganizationID)
+		})
+	}
+}
+
+func Test_input_DeleteVariable(t *testing.T) {
+	t.Parallel()
+
+	stub := func(err error) *VariableManagerMock {
+		return &VariableManagerMock{
+			DeleteVariableFunc: func(context.Context, xid.ID, string) error {
+				return err
+			},
+		}
+	}
+
+	cc := map[string]struct {
+		Man *VariableManagerMock
+		Err error
+	}{
+		"Error returned by VariableManager.DeleteVariable": {
+			Man: stub(assert.AnError),
+			Err: assert.AnError,
+		},
+		"Not found": {
+			Man: stub(errutil.ErrNotFound),
+			Err: fmt.Errorf("variable %s: %w", _testVariableID, ErrUnknownVariable),
+		},
+		"Successful call": {
+			Man: stub(nil),
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			err := testInput(variableDeps(c.Man), NameDeleteVariable, `{}`).DeleteVariable(_testVariableID)
+			testutil.AssertEqualError(t, c.Err, err)
+
+			ff := c.Man.DeleteVariableCalls()
+			require.Len(t, ff, 1)
+			assert.Equal(t, _testVariableID, ff[0].ID)
+			assert.Equal(t, "org", ff[0].OrganizationID)
+		})
+	}
+}
+
+func Test_input_SetVariableValue(t *testing.T) {
+	t.Parallel()
+
+	stub := func(err error) *VariableManagerMock {
+		return &VariableManagerMock{
+			SetValueFunc: func(context.Context, xid.ID, string, string, string) error {
+				return err
+			},
+		}
+	}
+
+	cc := map[string]struct {
+		Man *VariableManagerMock
+		Err error
+	}{
+		"Error returned by VariableManager.SetValue": {
+			Man: stub(assert.AnError),
+			Err: assert.AnError,
+		},
+		"Not found": {
+			Man: stub(errutil.ErrNotFound),
+			Err: fmt.Errorf("variable %s: %w", _testVariableID, ErrUnknownVariable),
+		},
+		"Successful call": {
+			Man: stub(nil),
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			err := testInput(variableDeps(c.Man), NameSetVariableValue, `{}`).SetVariableValue(_testVariableID, "x")
+			testutil.AssertEqualError(t, c.Err, err)
+
+			ff := c.Man.SetValueCalls()
+			require.Len(t, ff, 1)
+			assert.Equal(t, _testVariableID, ff[0].ID)
+			assert.Equal(t, "x", ff[0].Value)
+			assert.Equal(t, "org", ff[0].OrganizationID)
+			assert.Equal(t, "user", ff[0].UserID)
 		})
 	}
 }

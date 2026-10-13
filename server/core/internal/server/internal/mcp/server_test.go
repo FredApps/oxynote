@@ -16,6 +16,7 @@ var _readToolNames = []string{
 	"get_document",
 	"list_tags",
 	"list_hooks",
+	"list_variables",
 	"search_documents",
 }
 
@@ -33,6 +34,13 @@ var _writeToolNames = []string{
 	"update_tag",
 	"delete_tag",
 	"set_tag_assignment",
+	"create_variable_group",
+	"update_variable_group",
+	"delete_variable_group",
+	"create_variable",
+	"update_variable",
+	"delete_variable",
+	"set_variable_value",
 	"create_hook",
 	"update_hook",
 	"delete_hook",

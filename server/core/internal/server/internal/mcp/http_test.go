@@ -57,6 +57,7 @@ func stubSet(db *toolsMock.DB) *tools.Set {
 		nil,
 		nil,
 		nil,
+		nil,
 		&toolsMock.EditApplier{},
 		nil,
 		nil,

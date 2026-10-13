@@ -90,7 +90,7 @@ func Test_NewServer(t *testing.T) {
 	githubMan, err := github.NewManager(nil, github.Options{})
 	require.NoError(t, err)
 
-	assistantMan := assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, "claude")
+	assistantMan := assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, nil, "claude")
 
 	slackMan, err := slack.NewManager(log, nil, nil, nil, nil, slack.Options{})
 	require.NoError(t, err)
@@ -115,6 +115,7 @@ func Test_NewServer(t *testing.T) {
 			slackMan,
 			webchange.NewClient("", ""),
 			&HookManagerMock{},
+			&VariableManagerMock{},
 			stubSearcher{},
 			stubSearchTrigger{},
 			notifier,
@@ -143,13 +144,14 @@ func Test_NewServer(t *testing.T) {
 			// a manager of this subtest's own: NewServer calls
 			// SetTreeNotifier, which must not race the parallel
 			// success case's identical call on a shared manager.
-			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, "claude"),
+			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, nil, "claude"),
 			datasourceCore.NewManager(log, nil),
 			nil,
 			githubMan,
 			slackMan,
 			webchange.NewClient("", ""),
 			&HookManagerMock{},
+			&VariableManagerMock{},
 			stubSearcher{},
 			stubSearchTrigger{},
 			notifier,
@@ -164,6 +166,7 @@ func Test_NewServer(t *testing.T) {
 		t.Parallel()
 
 		hookMan := &HookManagerMock{}
+		variableMan := &VariableManagerMock{}
 
 		srv, err := NewServer(
 			log,
@@ -187,6 +190,7 @@ func Test_NewServer(t *testing.T) {
 			slackMan,
 			webchange.NewClient("", ""),
 			hookMan,
+			variableMan,
 			stubSearcher{},
 			stubSearchTrigger{},
 			notifier,
@@ -222,6 +226,8 @@ func Test_NewServer(t *testing.T) {
 		assert.NotNil(t, srv.handlers.ai)
 		assert.NotNil(t, srv.handlers.mcp)
 		assert.Len(t, hookMan.BindHookChangeCalls(), 1)
+		assert.NotNil(t, srv.handlers.variable)
+		assert.Len(t, variableMan.BindChangeCalls(), 1)
 
 		// nothing above is configured but MCP, so every other capability
 		// reports false.
@@ -240,13 +246,14 @@ func Test_NewServer(t *testing.T) {
 			// a manager of this subtest's own: NewServer calls
 			// SetTreeNotifier, which must not race the parallel
 			// success case's identical call on a shared manager.
-			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, "claude"),
+			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, nil, "claude"),
 			datasourceCore.NewManager(log, nil),
 			nil,
 			githubMan,
 			slackMan,
 			webchange.NewClient("", ""),
 			&HookManagerMock{},
+			&VariableManagerMock{},
 			stubSearcher{},
 			stubSearchTrigger{},
 			notifier,
@@ -284,13 +291,14 @@ func Test_NewServer(t *testing.T) {
 			db,
 			fc,
 			storer,
-			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, "claude"),
+			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, nil, "claude"),
 			datasourceCore.NewManager(log, nil),
 			nil,
 			githubMan,
 			slackMan,
 			webchange.NewClient("http://changedetection.test", ""),
 			&HookManagerMock{},
+			&VariableManagerMock{},
 			stubSearcher{},
 			stubSearchTrigger{},
 			notifier,

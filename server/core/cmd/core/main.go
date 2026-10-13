@@ -41,6 +41,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/storage"
 	storageFS "github.com/oxynote/oxynote/server/core/internal/storage/fs"
 	storageS3 "github.com/oxynote/oxynote/server/core/internal/storage/s3"
+	variableMan "github.com/oxynote/oxynote/server/core/internal/variable/manager"
 	"github.com/oxynote/oxynote/server/core/pkg/cryptoutil"
 	"github.com/oxynote/oxynote/server/core/pkg/ioutil"
 	"github.com/oxynote/oxynote/server/core/pkg/logutil"
@@ -303,6 +304,7 @@ func main() { //nolint:maintidx // main performs linear wiring of all components
 	blockRunner := blockrun.NewRunner(dbc, simulationChecker)
 
 	hooksMan := hookMan.NewManager(log, dbc, editClient, githubMan, webchangeClient, notifMan)
+	variablesMan := variableMan.NewManager(log, dbc)
 
 	assistantMan := assistant.NewManager(
 		log,
@@ -318,6 +320,7 @@ func main() { //nolint:maintidx // main performs linear wiring of all components
 		githubMan,
 		webchangeClient,
 		hooksMan,
+		variablesMan,
 		string(assistantOpts.Provider),
 	)
 
@@ -367,6 +370,7 @@ func main() { //nolint:maintidx // main performs linear wiring of all components
 		slackMan,
 		webchangeClient,
 		hooksMan,
+		variablesMan,
 		searchIndex,
 		searchJobMan,
 		notifMan,

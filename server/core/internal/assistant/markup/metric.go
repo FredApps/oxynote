@@ -14,28 +14,14 @@ import (
 // web/app/components/editor/blocks/metrics/utils.ts (TimeRangePreset,
 // RefreshInterval, the Visualization*Unit enums, MetricBlockWidth,
 // MetricSimulationPreset) and web/app/utils/api/data-source/generic-query.ts
-// (GenericQueryChartType); a value added there has to be added here or the
+// (GenericQueryChartType); a value added there has to be added here, or to
+// the document package for time ranges and refresh intervals, or the
 // assistant cannot author it.
 var (
 	// _metricVisualizationTypes are the chart kinds; they equal the
 	// datasource processor's ChartType values, which only the tests
 	// import, so this package stays free of the processors.
 	_metricVisualizationTypes = []string{"line_chart", "bar_chart", "gauge_chart"}
-
-	// _metricTimeRanges are the time-window presets.
-	_metricTimeRanges = []string{
-		"last_5_minutes", "last_15_minutes", "last_30_minutes",
-		"last_1_hour", "last_3_hours", "last_6_hours", "last_12_hours", "last_24_hours",
-		"last_2_days", "last_7_days", "last_30_days", "last_90_days",
-		"last_6_months", "last_1_year", "last_2_years", "last_5_years",
-		"today", "yesterday", "today_so_far",
-		"this_week", "this_week_so_far", "this_month", "this_month_so_far",
-		"this_year", "this_year_so_far",
-		"previous_week", "previous_month", "previous_year",
-	}
-
-	// _metricRefreshIntervals are the re-query periods.
-	_metricRefreshIntervals = []string{"5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"}
 
 	// _metricUnitTypes are the value units: custom, time, data and percent.
 	_metricUnitTypes = []string{
@@ -61,8 +47,8 @@ var (
 	// publishes.
 	_metricEnums = map[string][]string{
 		document.AttrVisualizationType: _metricVisualizationTypes,
-		document.AttrTimeRange:         _metricTimeRanges,
-		document.AttrRefreshInterval:   _metricRefreshIntervals,
+		document.AttrTimeRange:         document.MetricTimeRanges(),
+		document.AttrRefreshInterval:   document.MetricRefreshIntervals(),
 		document.AttrUnitType:          _metricUnitTypes,
 		document.AttrWidth:             _metricWidths,
 		document.AttrSimulationPreset:  _metricSimulationPresets,

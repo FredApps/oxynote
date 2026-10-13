@@ -21,6 +21,7 @@ func allToolNames() []Name {
 		NameGetDocument,
 		NameListTags,
 		NameListHooks,
+		NameListVariables,
 		NameSearchDocuments,
 		NameListDataSources,
 		NameGetDataSourceMetadata,
@@ -38,6 +39,13 @@ func allToolNames() []Name {
 		NameUpdateTag,
 		NameDeleteTag,
 		NameSetTagAssignment,
+		NameCreateVariableGroup,
+		NameUpdateVariableGroup,
+		NameDeleteVariableGroup,
+		NameCreateVariable,
+		NameUpdateVariable,
+		NameDeleteVariable,
+		NameSetVariableValue,
 		NameCreateHook,
 		NameUpdateHook,
 		NameDeleteHook,
@@ -142,7 +150,14 @@ func Test_Set_Entries(t *testing.T) {
 	entries := s.Entries()
 	require.Len(t, entries, len(allToolNames()))
 
-	destructive := []Name{NameDeleteDocument, NameDeleteBlock, NameDeleteTag, NameDeleteHook}
+	destructive := []Name{
+		NameDeleteDocument,
+		NameDeleteBlock,
+		NameDeleteTag,
+		NameDeleteVariableGroup,
+		NameDeleteVariable,
+		NameDeleteHook,
+	}
 
 	for i, e := range entries {
 		assert.Equal(t, allToolNames()[i], e.Info.Name)
@@ -277,6 +292,13 @@ func Test_Set_WriteNames(t *testing.T) {
 		string(NameUpdateTag),
 		string(NameDeleteTag),
 		string(NameSetTagAssignment),
+		string(NameCreateVariableGroup),
+		string(NameUpdateVariableGroup),
+		string(NameDeleteVariableGroup),
+		string(NameCreateVariable),
+		string(NameUpdateVariable),
+		string(NameDeleteVariable),
+		string(NameSetVariableValue),
 		string(NameCreateHook),
 		string(NameUpdateHook),
 		string(NameDeleteHook),

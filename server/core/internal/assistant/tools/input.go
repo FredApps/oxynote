@@ -21,6 +21,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/document/hook/processor"
 	"github.com/oxynote/oxynote/server/core/internal/search"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/oxynote/oxynote/server/core/pkg/errutil"
 	"github.com/oxynote/oxynote/server/core/pkg/sqlutil"
 	"github.com/rs/xid"
@@ -30,6 +31,14 @@ import (
 // nothing in the session's organisation. Another organisation's id lands
 // here too, for the same reason as ErrUnknownDocument.
 var ErrUnknownTag = errors.New("no tag with that id in this organisation; call list_tags for the ids that exist")
+
+// ErrUnknownVariable is what a variable lookup reports for an id that
+// names nothing in the session's organisation.
+var ErrUnknownVariable = errors.New("no variable with that id in this organisation; call list_variables for the ids that exist")
+
+// ErrUnknownVariableGroup is what a variable group lookup reports for an
+// id that names nothing in the session's organisation.
+var ErrUnknownVariableGroup = errors.New("no variable group with that id in this organisation; call list_variables for the ids that exist")
 
 // errUnknownHook is what a hook lookup reports for an id the addressed
 // document does not hold. A hook of another document, another
@@ -74,6 +83,9 @@ type Deps struct {
 	// hookMan runs the hook writes.
 	hookMan HookManager
 
+	// variableMan runs the variable reads and writes.
+	variableMan VariableManager
+
 	// applier is the edit client for content mutations and the
 	// rename/set-icon ops that must propagate to connected editors.
 	applier EditApplier
@@ -111,6 +123,7 @@ func NewDeps(
 	githubMan *github.Manager,
 	webchangeClient *webchange.Client,
 	hookMan HookManager,
+	variableMan VariableManager,
 	applier EditApplier,
 	tree TreeNotifier,
 	tags TagNotifier,
@@ -130,6 +143,7 @@ func NewDeps(
 		githubMan:       githubMan,
 		webchangeClient: webchangeClient,
 		hookMan:         hookMan,
+		variableMan:     variableMan,
 		applier:         applier,
 		tree:            tree,
 		tags:            tags,
@@ -699,6 +713,141 @@ func (i *input) FetchTag(tagID xid.ID) (*tag.Summary, error) {
 	return nil, fmt.Errorf("tag %s: %w", tagID, ErrUnknownTag)
 }
 
+// FetchVariableTree returns the organisation's variable groups in order,
+// each with its variables, their options and the user's own values.
+func (i *input) FetchVariableTree() (variable.Tree, error) {
+	return i.variableMan.FetchTree(i.ctx, i.orgID, i.userID)
+}
+
+// FetchVariableGroup returns the variable group the id names, with its
+// variables.
+func (i *input) FetchVariableGroup(groupID xid.ID) (*variable.GroupTree, error) {
+	tree, err := i.FetchVariableTree()
+	if err != nil {
+		return nil, fmt.Errorf("fetching variables: %w", err)
+	}
+
+	for _, g := range tree {
+		if g.ID == groupID {
+			return &g, nil
+		}
+	}
+
+	return nil, fmt.Errorf("variable group %s: %w", groupID, ErrUnknownVariableGroup)
+}
+
+// FetchVariable returns the variable the id names, with its options and
+// the user's own value.
+func (i *input) FetchVariable(variableID xid.ID) (*variable.Entry, error) {
+	tree, err := i.FetchVariableTree()
+	if err != nil {
+		return nil, fmt.Errorf("fetching variables: %w", err)
+	}
+
+	for _, g := range tree {
+		for _, v := range g.Variables {
+			if v.ID == variableID {
+				return &v, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("variable %s: %w", variableID, ErrUnknownVariable)
+}
+
+// CreateVariableGroup creates a variable group at the end of the
+// organisation's groups.
+func (i *input) CreateVariableGroup(inp variable.GroupCreateInput) (*variable.Group, error) {
+	return i.variableMan.CreateGroup(i.ctx, inp, i.orgID, i.userID)
+}
+
+// UpdateVariableGroup renames and/or recolours the variable group the id
+// names.
+func (i *input) UpdateVariableGroup(groupID xid.ID, inp variable.GroupUpdateInput) error {
+	if err := i.variableMan.UpdateGroup(i.ctx, groupID, inp, i.orgID); err != nil {
+		if errutil.IsNotFound(err) {
+			return fmt.Errorf("variable group %s: %w", groupID, ErrUnknownVariableGroup)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+// DeleteVariableGroup deletes the empty variable group the id names.
+func (i *input) DeleteVariableGroup(groupID xid.ID) error {
+	if err := i.variableMan.DeleteGroup(i.ctx, groupID, i.orgID); err != nil {
+		if errutil.IsNotFound(err) {
+			return fmt.Errorf("variable group %s: %w", groupID, ErrUnknownVariableGroup)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+// CreateVariable creates a variable at the end of its group.
+func (i *input) CreateVariable(inp variable.Input) (*variable.Variable, error) {
+	v, err := i.variableMan.CreateVariable(i.ctx, inp, i.orgID, i.userID)
+	if err != nil {
+		if errutil.IsNotFound(err) {
+			return nil, fmt.Errorf("variable group %s: %w", inp.GroupID, ErrUnknownVariableGroup)
+		}
+
+		return nil, err
+	}
+
+	return v, nil
+}
+
+// UpdateVariable replaces the definition of the variable the id names. A
+// not-found names the group when it is the group that is missing.
+func (i *input) UpdateVariable(variableID xid.ID, inp variable.Input) error {
+	err := i.variableMan.UpdateVariable(i.ctx, variableID, inp, i.orgID)
+	if err == nil {
+		return nil
+	}
+
+	if !errutil.IsNotFound(err) {
+		return err
+	}
+
+	if _, gerr := i.FetchVariableGroup(inp.GroupID); gerr != nil {
+		return gerr
+	}
+
+	return fmt.Errorf("variable %s: %w", variableID, ErrUnknownVariable)
+}
+
+// DeleteVariable deletes the variable the id names, with its options and
+// every user's value.
+func (i *input) DeleteVariable(variableID xid.ID) error {
+	if err := i.variableMan.DeleteVariable(i.ctx, variableID, i.orgID); err != nil {
+		if errutil.IsNotFound(err) {
+			return fmt.Errorf("variable %s: %w", variableID, ErrUnknownVariable)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+// SetVariableValue sets the user's own value of the variable the id names.
+func (i *input) SetVariableValue(variableID xid.ID, value string) error {
+	if err := i.variableMan.SetValue(i.ctx, variableID, value, i.orgID, i.userID); err != nil {
+		if errutil.IsNotFound(err) {
+			return fmt.Errorf("variable %s: %w", variableID, ErrUnknownVariable)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
 // FetchBranchTags returns the tags the branch branchID names carries, in the
 // tags' display order.
 func (i *input) FetchBranchTags(documentID, branchID xid.ID) ([]tag.Tag, error) {
@@ -1133,6 +1282,38 @@ type HookManager interface {
 type SearchTrigger interface {
 	// Trigger should run a search-job pass right away.
 	Trigger()
+}
+
+// VariableManager runs the variable reads and writes and announces the
+// writes.
+//
+//go:generate ../../../scripts/codegen/mock -t internal VariableManager variable_manager
+type VariableManager interface {
+	// FetchTree should fetch the organisation's groups, variables and
+	// options in order, each variable with the user's own value.
+	FetchTree(ctx context.Context, organizationID, userID string) (variable.Tree, error)
+
+	// CreateGroup should create a group at the end of the organisation's
+	// groups.
+	CreateGroup(ctx context.Context, inp variable.GroupCreateInput, organizationID, userID string) (*variable.Group, error)
+
+	// UpdateGroup should rename and/or recolour a group.
+	UpdateGroup(ctx context.Context, id xid.ID, inp variable.GroupUpdateInput, organizationID string) error
+
+	// DeleteGroup should delete an empty group.
+	DeleteGroup(ctx context.Context, id xid.ID, organizationID string) error
+
+	// CreateVariable should create a variable at the end of its group.
+	CreateVariable(ctx context.Context, inp variable.Input, organizationID, userID string) (*variable.Variable, error)
+
+	// UpdateVariable should replace a variable's definition.
+	UpdateVariable(ctx context.Context, id xid.ID, inp variable.Input, organizationID string) error
+
+	// DeleteVariable should delete a variable.
+	DeleteVariable(ctx context.Context, id xid.ID, organizationID string) error
+
+	// SetValue should set the user's own value.
+	SetValue(ctx context.Context, id xid.ID, value, organizationID, userID string) error
 }
 
 // Searcher is the full-text search surface search_documents uses.

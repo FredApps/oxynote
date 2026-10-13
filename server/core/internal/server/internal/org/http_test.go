@@ -24,6 +24,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/server/internal/auth"
 	"github.com/oxynote/oxynote/server/core/internal/storage"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
@@ -156,6 +157,38 @@ func assertWelcomeDocumentTagged(t *testing.T, tx *TxMock, count int) {
 	assert.Equal(t, tx.InsertTagCalls()[0].T.ID, ff[0].TagID)
 }
 
+// assertSeededVariables checks that the built-in group and its two
+// variables went into the transaction, all of the organization.
+func assertSeededVariables(t *testing.T, tx *TxMock, groups, variables int) {
+	t.Helper()
+
+	gg := tx.CreateVariableGroupCalls()
+	require.Len(t, gg, groups)
+
+	vv := tx.CreateVariableCalls()
+	require.Len(t, vv, variables)
+
+	if groups == 0 {
+		return
+	}
+
+	assert.Equal(t, "Metrics", gg[0].G.GroupName)
+	assert.Equal(t, "org2", gg[0].G.OrganizationID)
+	assert.True(t, gg[0].G.Builtin)
+
+	keys := make([]string, 0, len(vv))
+
+	for _, v := range vv {
+		keys = append(keys, v.V.Key)
+		assert.Equal(t, gg[0].G.ID, v.V.GroupID)
+		assert.Equal(t, "org2", v.V.OrganizationID)
+	}
+
+	if variables == 2 {
+		assert.Equal(t, []string{"metric_range", "metric_refresh"}, keys)
+	}
+}
+
 func Test_Handler_InitializeOrganization(t *testing.T) {
 	type check func(*testing.T, *DBMock, *TxMock, *httptest.ResponseRecorder)
 
@@ -228,6 +261,12 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 	wasWelcomeDocumentTagged := func(count int) check {
 		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *httptest.ResponseRecorder) {
 			assertWelcomeDocumentTagged(t, tx, count)
+		}
+	}
+
+	wereVariablesSeeded := func(groups, variables int) check {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *httptest.ResponseRecorder) {
+			assertSeededVariables(t, tx, groups, variables)
 		}
 	}
 
@@ -371,6 +410,33 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 				wasCommitCalled(0),
 			),
 		},
+		"Variable group insertion error": {
+			Members: []string{"member1"},
+			Tx: &TxMock{
+				CreateVariableGroupFunc: func(context.Context, variable.Group) error {
+					return errors.New("boom")
+				},
+			},
+			Checks: checks(
+				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wereVariablesSeeded(1, 0),
+				wasCommitCalled(0),
+			),
+		},
+		"Variable insertion error": {
+			Members: []string{"member1"},
+			Tx: &TxMock{
+				CreateVariableFunc: func(context.Context, variable.Variable) error {
+					return errors.New("boom")
+				},
+			},
+			Checks: checks(
+				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wereVariablesSeeded(1, 1),
+				wasSearchJobInserted(0),
+				wasCommitCalled(0),
+			),
+		},
 		"Search job insertion error": {
 			Members: []string{"member1"},
 			Tx: &TxMock{
@@ -413,6 +479,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 				wasUpsertMaintainersCalled(1),
 				wasInsertTagCalled(3),
 				wasWelcomeDocumentTagged(1),
+				wereVariablesSeeded(1, 2),
 				wasSearchJobInserted(1),
 				wasCommitCalled(1),
 			),

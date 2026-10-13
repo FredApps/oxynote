@@ -28,6 +28,7 @@ const (
 	NameSearchDocuments Name = "search_documents"
 	NameListTags        Name = "list_tags"
 	NameListHooks       Name = "list_hooks"
+	NameListVariables   Name = "list_variables"
 )
 
 // Data-source tools — reads against the organisation's outbound
@@ -56,9 +57,17 @@ const (
 	NameUpdateTag        Name = "update_tag"
 	NameDeleteTag        Name = "delete_tag"
 	NameSetTagAssignment Name = "set_tag_assignment"
-	NameCreateHook       Name = "create_hook"
-	NameUpdateHook       Name = "update_hook"
-	NameDeleteHook       Name = "delete_hook"
+
+	NameCreateVariableGroup Name = "create_variable_group"
+	NameUpdateVariableGroup Name = "update_variable_group"
+	NameDeleteVariableGroup Name = "delete_variable_group"
+	NameCreateVariable      Name = "create_variable"
+	NameUpdateVariable      Name = "update_variable"
+	NameDeleteVariable      Name = "delete_variable"
+	NameSetVariableValue    Name = "set_variable_value"
+	NameCreateHook          Name = "create_hook"
+	NameUpdateHook          Name = "update_hook"
+	NameDeleteHook          Name = "delete_hook"
 )
 
 // Set is the tools one session offers the model: an immutable registry
@@ -94,6 +103,7 @@ func New(deps *Deps) *Set {
 		getDocument{},
 		listTags{},
 		listHooks{},
+		listVariables{},
 		searchDocuments{},
 		listDataSources{},
 		getDataSourceMetadata{},
@@ -112,6 +122,13 @@ func New(deps *Deps) *Set {
 		updateTag{},
 		deleteTag{},
 		setTagAssignment{},
+		createVariableGroup{},
+		updateVariableGroup{},
+		deleteVariableGroup{},
+		createVariable{},
+		updateVariable{},
+		deleteVariable{},
+		setVariableValue{},
 		createHook{},
 		updateHook{},
 		deleteHook{},

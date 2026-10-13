@@ -22,6 +22,15 @@ const (
 	// _tagIDDescription describes a tag_id argument.
 	_tagIDDescription = "The tag id, from list_tags or a document's tags."
 
+	// _variableGroupIDDescription describes a group_id argument.
+	_variableGroupIDDescription = "The variable group id, from list_variables."
+
+	// _variableIDDescription describes a variable_id argument.
+	_variableIDDescription = "The variable id, from list_variables."
+
+	// _variableDefaultDescription describes a variable's default argument.
+	_variableDefaultDescription = "What everyone sees until they set their own: a decimal, a time range preset or text. Not for a list."
+
 	// _hookIDDescription describes a hook_id argument.
 	_hookIDDescription = "The hook id, from list_hooks."
 

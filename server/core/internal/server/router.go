@@ -46,6 +46,12 @@ func (s *Server) wsRouter() *wsserver.Router {
 		},
 	)
 
+	binderFn("change@variables",
+		func(tpc wsserver.Topic) {
+			s.handlers.variable.BindChange(tpc)
+		},
+	)
+
 	binderFn("change@documents.{documentId}.comments",
 		func(tpc wsserver.Topic) {
 			s.handlers.comment.BindCommentsChange(tpc)
@@ -366,6 +372,27 @@ func (s *Server) router() chi.Router {
 		sr.Route("/tree", func(ssr chi.Router) {
 			ssr.Put("/", s.handlers.document.UpdateDocumentTree)
 			ssr.Get("/", s.handlers.document.FetchDocumentTree)
+		})
+	})
+
+	r.Route("/variables", func(sr chi.Router) {
+		sr.Post("/", s.handlers.variable.CreateVariable)
+		sr.Route("/tree", func(ssr chi.Router) {
+			ssr.Get("/", s.handlers.variable.FetchVariableTree)
+			ssr.Put("/", s.handlers.variable.UpdateVariableTree)
+		})
+		sr.Route("/groups", func(ssr chi.Router) {
+			ssr.Post("/", s.handlers.variable.CreateVariableGroup)
+			ssr.Put("/tree", s.handlers.variable.UpdateVariableGroupTree)
+			ssr.Put("/{groupId}", s.handlers.variable.UpdateVariableGroup)
+			ssr.Delete("/{groupId}", s.handlers.variable.DeleteVariableGroup)
+		})
+		sr.Route("/{variableId}", func(ssr chi.Router) {
+			ssr.Put("/", s.handlers.variable.UpdateVariable)
+			ssr.Delete("/", s.handlers.variable.DeleteVariable)
+			ssr.Put("/default", s.handlers.variable.SetVariableDefault)
+			ssr.Put("/value", s.handlers.variable.SetVariableValue)
+			ssr.Delete("/value", s.handlers.variable.ResetVariableValue)
 		})
 	})
 

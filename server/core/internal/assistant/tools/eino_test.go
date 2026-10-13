@@ -50,8 +50,8 @@ func Test_Info_toEino(t *testing.T) {
 	require.NoError(t, err)
 
 	// every session sends the whole tool list, and an MCP client keeps
-	// it in context, so it stays under about 6k tokens.
-	assert.Less(t, len(data), 22000, "the tool list has grown past its budget")
+	// it in context, so it stays under about 7k tokens.
+	assert.Less(t, len(data), 27000, "the tool list has grown past its budget")
 
 	// a description change is meant to be reviewed as a golden diff, so
 	// the file is rewritten on request rather than by hand.

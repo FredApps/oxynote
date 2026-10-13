@@ -12,6 +12,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/document/hook"
 	"github.com/oxynote/oxynote/server/core/internal/search"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/rs/xid"
 )
 
@@ -30,6 +31,12 @@ var _ Tx = &TxMock{}
 //			},
 //			CommitFunc: func() error {
 //				panic("mock out the Commit method")
+//			},
+//			CreateVariableFunc: func(ctx context.Context, v variable.Variable) error {
+//				panic("mock out the CreateVariable method")
+//			},
+//			CreateVariableGroupFunc: func(ctx context.Context, g variable.Group) error {
+//				panic("mock out the CreateVariableGroup method")
 //			},
 //			DeleteGithubInstallationsByOrganizationIDFunc: func(ctx context.Context, organizationID string) error {
 //				panic("mock out the DeleteGithubInstallationsByOrganizationID method")
@@ -76,6 +83,12 @@ type TxMock struct {
 
 	// CommitFunc mocks the Commit method.
 	CommitFunc func() error
+
+	// CreateVariableFunc mocks the CreateVariable method.
+	CreateVariableFunc func(ctx context.Context, v variable.Variable) error
+
+	// CreateVariableGroupFunc mocks the CreateVariableGroup method.
+	CreateVariableGroupFunc func(ctx context.Context, g variable.Group) error
 
 	// DeleteGithubInstallationsByOrganizationIDFunc mocks the DeleteGithubInstallationsByOrganizationID method.
 	DeleteGithubInstallationsByOrganizationIDFunc func(ctx context.Context, organizationID string) error
@@ -127,6 +140,20 @@ type TxMock struct {
 		}
 		// Commit holds details about calls to the Commit method.
 		Commit []struct {
+		}
+		// CreateVariable holds details about calls to the CreateVariable method.
+		CreateVariable []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// V is the v argument value.
+			V variable.Variable
+		}
+		// CreateVariableGroup holds details about calls to the CreateVariableGroup method.
+		CreateVariableGroup []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// G is the g argument value.
+			G variable.Group
 		}
 		// DeleteGithubInstallationsByOrganizationID holds details about calls to the DeleteGithubInstallationsByOrganizationID method.
 		DeleteGithubInstallationsByOrganizationID []struct {
@@ -210,6 +237,8 @@ type TxMock struct {
 	}
 	lockAssignBranchTag                           sync.RWMutex
 	lockCommit                                    sync.RWMutex
+	lockCreateVariable                            sync.RWMutex
+	lockCreateVariableGroup                       sync.RWMutex
 	lockDeleteGithubInstallationsByOrganizationID sync.RWMutex
 	lockDeleteSlackAppsByOrganizationID           sync.RWMutex
 	lockFetchDocumentHooksByOrganizationID        sync.RWMutex
@@ -301,6 +330,84 @@ func (mock *TxMock) CommitCalls() []struct {
 	mock.lockCommit.RLock()
 	calls = mock.calls.Commit
 	mock.lockCommit.RUnlock()
+	return calls
+}
+
+// CreateVariable calls CreateVariableFunc.
+func (mock *TxMock) CreateVariable(ctx context.Context, v variable.Variable) error {
+	callInfo := struct {
+		Ctx context.Context
+		V   variable.Variable
+	}{
+		Ctx: ctx,
+		V:   v,
+	}
+	mock.lockCreateVariable.Lock()
+	mock.calls.CreateVariable = append(mock.calls.CreateVariable, callInfo)
+	mock.lockCreateVariable.Unlock()
+	if mock.CreateVariableFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateVariableFunc(ctx, v)
+}
+
+// CreateVariableCalls gets all the calls that were made to CreateVariable.
+// Check the length with:
+//
+//	len(mockedTx.CreateVariableCalls())
+func (mock *TxMock) CreateVariableCalls() []struct {
+	Ctx context.Context
+	V   variable.Variable
+} {
+	var calls []struct {
+		Ctx context.Context
+		V   variable.Variable
+	}
+	mock.lockCreateVariable.RLock()
+	calls = mock.calls.CreateVariable
+	mock.lockCreateVariable.RUnlock()
+	return calls
+}
+
+// CreateVariableGroup calls CreateVariableGroupFunc.
+func (mock *TxMock) CreateVariableGroup(ctx context.Context, g variable.Group) error {
+	callInfo := struct {
+		Ctx context.Context
+		G   variable.Group
+	}{
+		Ctx: ctx,
+		G:   g,
+	}
+	mock.lockCreateVariableGroup.Lock()
+	mock.calls.CreateVariableGroup = append(mock.calls.CreateVariableGroup, callInfo)
+	mock.lockCreateVariableGroup.Unlock()
+	if mock.CreateVariableGroupFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateVariableGroupFunc(ctx, g)
+}
+
+// CreateVariableGroupCalls gets all the calls that were made to CreateVariableGroup.
+// Check the length with:
+//
+//	len(mockedTx.CreateVariableGroupCalls())
+func (mock *TxMock) CreateVariableGroupCalls() []struct {
+	Ctx context.Context
+	G   variable.Group
+} {
+	var calls []struct {
+		Ctx context.Context
+		G   variable.Group
+	}
+	mock.lockCreateVariableGroup.RLock()
+	calls = mock.calls.CreateVariableGroup
+	mock.lockCreateVariableGroup.RUnlock()
 	return calls
 }
 

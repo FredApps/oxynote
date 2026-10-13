@@ -59,6 +59,7 @@ type Manager struct {
 	githubMan       *github.Manager
 	webchangeClient *webchange.Client
 	hookMan         tools.HookManager
+	variableMan     tools.VariableManager
 
 	history     *persist.History
 	checkpoints *persist.Checkpoints
@@ -92,10 +93,11 @@ type Manager struct {
 // metrics so usage stays readable across a provider change.
 //
 // githubMan and webchangeClient tell the hook tools which integrations
-// exist; hookMan runs hook writes. The tree notifier broadcasts sidebar
-// refresh events after document tree mutations and is wired
-// post-construction via SetTreeNotifier because the document handler
-// that satisfies it is built later, inside server.NewServer.
+// exist; hookMan runs hook writes and variableMan the variable reads and
+// writes. The tree notifier broadcasts sidebar refresh events after
+// document tree mutations and is wired post-construction via
+// SetTreeNotifier because the document handler that satisfies it is
+// built later, inside server.NewServer.
 func NewManager(
 	log *slog.Logger,
 	db tools.DB,
@@ -110,6 +112,7 @@ func NewManager(
 	githubMan *github.Manager,
 	webchangeClient *webchange.Client,
 	hookMan tools.HookManager,
+	variableMan tools.VariableManager,
 	providerName string,
 ) *Manager {
 	if summaryModel == nil {
@@ -150,6 +153,7 @@ func NewManager(
 		githubMan:       githubMan,
 		webchangeClient: webchangeClient,
 		hookMan:         hookMan,
+		variableMan:     variableMan,
 
 		history:     persist.NewHistory(log, history),
 		checkpoints: persist.NewCheckpoints(log, blobs),
@@ -216,6 +220,7 @@ func (m *Manager) ToolSet(orgID, userID string) *tools.Set {
 		m.githubMan,
 		m.webchangeClient,
 		m.hookMan,
+		m.variableMan,
 		m.applier,
 		m.tree,
 		m.tags,
