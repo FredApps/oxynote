@@ -132,6 +132,9 @@ render). vee-validate uses its own messages (see [README.md](README.md)).
 - shadcn-vue components in [app/components/shadcn/ui/](app/components/shadcn/ui/),
   prefix `ShadcnUi`; Tailwind v4, theme in
   [app/assets/css/main.css](app/assets/css/main.css).
+- [DESIGN.md](DESIGN.md) is the style book. A change to anything it
+  describes (a token in `main.css`, a shadcn variant, a size, radius,
+  shadow, icon or motion convention) updates it in the same task.
 - Icons via `@nuxt/icon` (CSS mode). The desktop build bundles the
   selectable title icons (`selectableIconList()` in
   [app/utils/icon.ts](app/utils/icon.ts)); the web build resolves them via
