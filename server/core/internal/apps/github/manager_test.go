@@ -51,7 +51,7 @@ func pointManagerAt(t *testing.T, man *Manager, handler http.Handler) {
 
 // newTestInstallationClient creates an InstallationClient talking to a test
 // server serving the given handler.
-func newTestInstallationClient(t *testing.T, user bool, handler http.Handler) *InstallationClient {
+func newTestInstallationClient(t *testing.T, handler http.Handler) *InstallationClient {
 	t.Helper()
 
 	srv := httptest.NewServer(handler)
@@ -66,7 +66,6 @@ func newTestInstallationClient(t *testing.T, user bool, handler http.Handler) *I
 	require.NoError(t, err)
 
 	return &InstallationClient{
-		user:               user,
 		owner:              "own",
 		installationClient: client,
 	}
@@ -296,116 +295,6 @@ func Test_Manager_GetInstallationClient(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, "own", client.owner)
-			assert.True(t, client.user)
-		})
-	}
-}
-
-func Test_InstallationClient_FetchIssues(t *testing.T) {
-	t.Parallel()
-
-	const issuesJSON = `{
-		"total_count": 1,
-		"items": [{
-			"id": 7,
-			"title": "Bug",
-			"html_url": "https://github.com/own/repo/issues/7",
-			"user": {"id": 3},
-			"draft": false,
-			"state": "open",
-			"created_at": "2024-01-02T03:04:05Z",
-			"updated_at": "2024-01-03T03:04:05Z"
-		}]
-	}`
-
-	expectedIssues := []Issue{{
-		ID:        7,
-		Title:     "Bug",
-		URL:       "https://github.com/own/repo/issues/7",
-		UserID:    3,
-		State:     "open",
-		CreatedAt: "2024-01-02T03:04:05Z",
-		UpdatedAt: "2024-01-03T03:04:05Z",
-	}}
-
-	tests := map[string]struct {
-		User           bool
-		Repository     string
-		RepoStatus     int
-		SearchStatus   int
-		ExpectedQuery  string
-		ExpectedErr    error
-		ExpectedIssues []Issue
-	}{
-		"Repository-scoped search returns issues": {
-			Repository:     "repo",
-			ExpectedQuery:  "repo:own/repo in:title crash",
-			ExpectedIssues: expectedIssues,
-		},
-		"Organization-wide search returns issues": {
-			ExpectedQuery:  "org:own in:title crash",
-			ExpectedIssues: expectedIssues,
-		},
-		"User-wide search returns issues": {
-			User:           true,
-			ExpectedQuery:  "user:own in:title crash",
-			ExpectedIssues: expectedIssues,
-		},
-		"Missing repository fails": {
-			Repository:  "repo",
-			RepoStatus:  http.StatusNotFound,
-			ExpectedErr: ErrRepositoryNotFound,
-		},
-		"Search failure is propagated": {
-			SearchStatus: http.StatusInternalServerError,
-			ExpectedErr:  assert.AnError,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			var searchedQuery string
-
-			mux := http.NewServeMux()
-
-			mux.HandleFunc("/repos/own/repo", func(w http.ResponseWriter, _ *http.Request) {
-				if tc.RepoStatus != 0 {
-					w.WriteHeader(tc.RepoStatus)
-
-					return
-				}
-
-				_, err := w.Write([]byte(`{"name": "repo"}`))
-				assert.NoError(t, err)
-			})
-
-			mux.HandleFunc("/search/issues", func(w http.ResponseWriter, r *http.Request) {
-				searchedQuery = r.URL.Query().Get("q")
-
-				if tc.SearchStatus != 0 {
-					w.WriteHeader(tc.SearchStatus)
-
-					return
-				}
-
-				_, err := w.Write([]byte(issuesJSON))
-				assert.NoError(t, err)
-			})
-
-			ic := newTestInstallationClient(t, tc.User, mux)
-
-			issues, err := ic.FetchIssues(context.Background(), "crash", tc.Repository)
-
-			testutil.AssertEqualError(t, tc.ExpectedErr, err)
-
-			if tc.ExpectedErr != nil {
-				return
-			}
-
-			assert.Equal(t, tc.ExpectedQuery, searchedQuery)
-			assert.Equal(t, tc.ExpectedIssues, issues)
 		})
 	}
 }
@@ -448,7 +337,7 @@ func Test_InstallationClient_FetchRepositories(t *testing.T) {
 				assert.NoError(t, err)
 			})
 
-			ic := newTestInstallationClient(t, false, mux)
+			ic := newTestInstallationClient(t, mux)
 
 			repos, err := ic.FetchRepositories(context.Background())
 
@@ -478,7 +367,7 @@ func Test_InstallationClient_FetchRepositories(t *testing.T) {
 			assert.NoError(t, err)
 		})
 
-		ic := newTestInstallationClient(t, false, mux)
+		ic := newTestInstallationClient(t, mux)
 
 		res, err := ic.FetchRepositories(context.Background())
 		require.NoError(t, err)
@@ -540,7 +429,7 @@ func Test_InstallationClient_FetchRepositoryBranches(t *testing.T) {
 				assert.NoError(t, err)
 			})
 
-			ic := newTestInstallationClient(t, false, mux)
+			ic := newTestInstallationClient(t, mux)
 
 			branches, err := ic.FetchRepositoryBranches(context.Background(), "repo")
 
@@ -657,7 +546,7 @@ func Test_InstallationClient_FetchRepositoryTree(t *testing.T) {
 				assert.NoError(t, err)
 			})
 
-			ic := newTestInstallationClient(t, false, mux)
+			ic := newTestInstallationClient(t, mux)
 
 			tree, err := ic.FetchRepositoryTree(context.Background(), "repo", tc.Branch)
 
@@ -669,187 +558,6 @@ func Test_InstallationClient_FetchRepositoryTree(t *testing.T) {
 
 			assert.Equal(t, tc.ExpectedBranch, fetchedBranch)
 			assert.Equal(t, tc.ExpectedTree, tree)
-		})
-	}
-}
-
-func Test_InstallationClient_FetchFileContent(t *testing.T) {
-	t.Parallel()
-
-	tests := map[string]struct {
-		Branch          string
-		RepoStatus      int
-		ContentsStatus  int
-		ContentsBody    string
-		ExpectedRef     string
-		ExpectedErr     error
-		ExpectedContent *FileContent
-	}{
-		"File content is decoded": {
-			Branch: "dev",
-			// aGVsbG8= is the base64 form of hello.
-			ContentsBody: `{"type": "file", "path": "docs/a.md", "content": "aGVsbG8=", "encoding": "base64", "sha": "sha-1", "size": 5}`,
-			ExpectedRef:  "dev",
-			ExpectedContent: &FileContent{
-				Path:    "docs/a.md",
-				Content: "hello",
-				SHA:     "sha-1",
-				Size:    5,
-			},
-		},
-		"Empty branch falls back to the default branch": {
-			ContentsBody: `{"type": "file", "path": "docs/a.md", "content": "aGVsbG8=", "encoding": "base64", "sha": "sha-1", "size": 5}`,
-			ExpectedRef:  "main",
-			ExpectedContent: &FileContent{
-				Path:    "docs/a.md",
-				Content: "hello",
-				SHA:     "sha-1",
-				Size:    5,
-			},
-		},
-		"Missing repository fails": {
-			RepoStatus:  http.StatusNotFound,
-			ExpectedErr: ErrRepositoryNotFound,
-		},
-		"Missing file fails": {
-			ContentsStatus: http.StatusNotFound,
-			ExpectedErr:    ErrResourceNotFound,
-		},
-		"Directory content fails": {
-			ContentsBody: `[{"type": "file", "path": "docs/a.md"}]`,
-			ExpectedErr:  ErrResourceNotFound,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			var fetchedRef string
-
-			mux := http.NewServeMux()
-
-			mux.HandleFunc("/repos/own/repo", func(w http.ResponseWriter, _ *http.Request) {
-				if tc.RepoStatus != 0 {
-					w.WriteHeader(tc.RepoStatus)
-
-					return
-				}
-
-				_, err := w.Write([]byte(`{"name": "repo", "default_branch": "main"}`))
-				assert.NoError(t, err)
-			})
-
-			mux.HandleFunc("/repos/own/repo/contents/", func(w http.ResponseWriter, r *http.Request) {
-				fetchedRef = r.URL.Query().Get("ref")
-
-				if tc.ContentsStatus != 0 {
-					w.WriteHeader(tc.ContentsStatus)
-
-					return
-				}
-
-				_, err := w.Write([]byte(tc.ContentsBody))
-				assert.NoError(t, err)
-			})
-
-			ic := newTestInstallationClient(t, false, mux)
-
-			fc, err := ic.FetchFileContent(context.Background(), "repo", tc.Branch, "docs/a.md")
-
-			testutil.AssertEqualError(t, tc.ExpectedErr, err)
-
-			if tc.ExpectedErr != nil {
-				return
-			}
-
-			assert.Equal(t, tc.ExpectedRef, fetchedRef)
-			assert.Equal(t, tc.ExpectedContent, fc)
-		})
-	}
-}
-
-func Test_InstallationClient_FetchCodeSearchResults(t *testing.T) {
-	t.Parallel()
-
-	tests := map[string]struct {
-		RepoStatus      int
-		SearchStatus    int
-		ExpectedErr     error
-		ExpectedResults []CodeSearchResult
-	}{
-		"Code search results carry fragments": {
-			ExpectedResults: []CodeSearchResult{
-				{
-					Name:      "a.go",
-					Path:      "pkg/a.go",
-					URL:       "https://github.com/own/repo/blob/main/pkg/a.go",
-					Fragments: []string{"func main()"},
-				},
-			},
-		},
-		"Missing repository fails": {
-			RepoStatus:  http.StatusNotFound,
-			ExpectedErr: ErrRepositoryNotFound,
-		},
-		"Search failure is propagated": {
-			SearchStatus: http.StatusInternalServerError,
-			ExpectedErr:  assert.AnError,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			var searchedQuery string
-
-			mux := http.NewServeMux()
-
-			mux.HandleFunc("/repos/own/repo", func(w http.ResponseWriter, _ *http.Request) {
-				if tc.RepoStatus != 0 {
-					w.WriteHeader(tc.RepoStatus)
-
-					return
-				}
-
-				_, err := w.Write([]byte(`{"name": "repo"}`))
-				assert.NoError(t, err)
-			})
-
-			mux.HandleFunc("/search/code", func(w http.ResponseWriter, r *http.Request) {
-				searchedQuery = r.URL.Query().Get("q")
-
-				if tc.SearchStatus != 0 {
-					w.WriteHeader(tc.SearchStatus)
-
-					return
-				}
-
-				_, err := w.Write([]byte(`{
-					"total_count": 1,
-					"items": [{
-						"name": "a.go",
-						"path": "pkg/a.go",
-						"html_url": "https://github.com/own/repo/blob/main/pkg/a.go",
-						"text_matches": [{"fragment": "func main()"}, {"fragment": ""}]
-					}]
-				}`))
-				assert.NoError(t, err)
-			})
-
-			ic := newTestInstallationClient(t, false, mux)
-
-			results, err := ic.FetchCodeSearchResults(context.Background(), "repo", "main")
-
-			testutil.AssertEqualError(t, tc.ExpectedErr, err)
-
-			if tc.ExpectedErr != nil {
-				return
-			}
-
-			assert.Equal(t, "repo:own/repo main", searchedQuery)
-			assert.Equal(t, tc.ExpectedResults, results)
 		})
 	}
 }

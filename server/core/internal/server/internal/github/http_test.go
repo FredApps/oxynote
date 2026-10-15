@@ -693,43 +693,6 @@ func Test_Handler_FetchRepositoryBranches(t *testing.T) {
 	}
 }
 
-func Test_Handler_FetchIssues(t *testing.T) {
-	t.Parallel()
-
-	t.Run("Invalid form data", func(t *testing.T) {
-		t.Parallel()
-
-		hdl := newMockedHandler(t, true, &DBMock{})
-
-		req := httptest.NewRequest(http.MethodGet, "http://test.com/", http.NoBody)
-		req.URL.RawQuery = "q=%zz"
-		req = req.WithContext(addSession(req.Context()))
-
-		rec := httptest.NewRecorder()
-
-		hdl.FetchIssues(rec, req)
-
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
-
-	for cn, c := range installationClientCases() {
-		t.Run(cn, func(t *testing.T) {
-			t.Parallel()
-
-			hdl := newMockedHandler(t, c.Configured, c.DB)
-
-			req := httptest.NewRequest(http.MethodGet, "http://test.com/?q=bug", http.NoBody)
-			req = req.WithContext(addSession(req.Context()))
-
-			rec := httptest.NewRecorder()
-
-			hdl.FetchIssues(rec, req)
-
-			assert.Equal(t, c.RespCode, rec.Code)
-		})
-	}
-}
-
 func Test_Handler_FetchRepositoryTree(t *testing.T) {
 	t.Parallel()
 

@@ -232,7 +232,6 @@ func (s *Server) router() chi.Router {
 			ssr.Delete("/", s.handlers.github.DisconnectOrganization)
 			ssr.Get("/install", s.handlers.github.FetchInstall)
 			ssr.Get("/connect", s.handlers.github.ConnectOrganization)
-			ssr.Get("/issues", s.handlers.github.FetchIssues)
 			ssr.Route("/repositories", func(sssr chi.Router) {
 				sssr.Get("/", s.handlers.github.FetchRepositories)
 				sssr.Route("/{repository}", func(ssssr chi.Router) {
