@@ -7,7 +7,7 @@ import {
 	type CompletionSource,
 } from "@codemirror/autocomplete"
 import type { EditorView } from "codemirror"
-import { TimeRangePreset } from "../../utils"
+import { TimeRangePreset } from "~/utils/time-range"
 import {
 	installAutoImportGlobals,
 	stubPrometheusAPI,

@@ -17,7 +17,7 @@ import {
 	trimEditorWhitespace,
 	useQueryEditorExtension,
 } from "./editor"
-import type { TimeRangePreset } from "../../utils"
+import type { TimeRangePreset } from "~/utils/time-range"
 import { indentWithTab } from "@codemirror/commands"
 import { DiffStatus } from "~/components/editor/diff/position-map"
 

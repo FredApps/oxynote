@@ -283,6 +283,67 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 		).toBe("true")
 	})
 
+	it("shows how many variables the page uses on the variables row", async ({
+		expect,
+	}) => {
+		stubQueries()
+
+		const wrapper = await mountSidebar({
+			variableUsage: { usedOnCurrentPage: 4, total: 8 },
+		})
+
+		expect(itemNamed(wrapper, t("sidebar.sections.top.variables")).text()).toBe(
+			`${t("sidebar.sections.top.variables")}4`,
+		)
+	})
+
+	it("explains the variable count in a tooltip", async ({ expect }) => {
+		stubQueries()
+		const wrapper = await mountSidebar({
+			variableUsage: { usedOnCurrentPage: 4, total: 8 },
+		})
+
+		await itemNamed(wrapper, t("sidebar.sections.top.variables"))
+			.get("[data-slot='tooltip-trigger']")
+			.trigger("focus")
+		await nextTick()
+
+		expect(document.body.textContent).toContain(
+			t("sidebar.sections.top.variables-usage", {
+				"used-on-current-page": 4,
+				total: 8,
+			}),
+		)
+	})
+
+	it("hides the variable count while the page uses none", async ({
+		expect,
+	}) => {
+		stubQueries()
+
+		const wrapper = await mountSidebar({
+			variableUsage: { usedOnCurrentPage: 0, total: 8 },
+		})
+
+		expect(itemNamed(wrapper, t("sidebar.sections.top.variables")).text()).toBe(
+			t("sidebar.sections.top.variables"),
+		)
+	})
+
+	it("marks the variables row active while the variables panel is open", async ({
+		expect,
+	}) => {
+		stubQueries()
+
+		const wrapper = await mountSidebar({ variableSidebarOpen: true })
+
+		expect(
+			itemNamed(wrapper, t("sidebar.sections.top.variables")).attributes(
+				"data-active",
+			),
+		).toBe("true")
+	})
+
 	it("lists the workspace pages under their own heading", async ({
 		expect,
 	}) => {
@@ -332,6 +393,35 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 		await itemNamed(wrapper, t("sidebar.sections.top.inbox")).trigger("click")
 
 		expect(sidebar(wrapper).emitted("toggle-notifications")).toHaveLength(1)
+	})
+
+	it("ignores clicks on the variables row while its variables are being edited", async ({
+		expect,
+	}) => {
+		stubQueries()
+
+		const wrapper = await mountSidebar({
+			variableSidebarOpen: true,
+			variableEditing: true,
+		})
+
+		expect(
+			itemNamed(wrapper, t("sidebar.sections.top.variables")).classes(),
+		).toContain("pointer-events-none")
+	})
+
+	it("asks to toggle the variables panel from the variables row", async ({
+		expect,
+	}) => {
+		stubQueries()
+		const wrapper = await mountSidebar()
+
+		await itemNamed(wrapper, t("sidebar.sections.top.variables")).trigger(
+			"click",
+		)
+
+		expect(sidebar(wrapper).emitted("toggle-variables")).toHaveLength(1)
+		expect(sidebar(wrapper).emitted("toggle-notifications")).toBeUndefined()
 	})
 
 	it("asks to create a page from the workspace heading action", async ({

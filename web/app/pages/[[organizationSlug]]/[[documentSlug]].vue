@@ -151,12 +151,16 @@ const pendingTagDeletion = ref<{
 	name: string
 } | null>(null)
 const notificationSidebarOpen = ref(false)
+const variableSidebarOpen = ref(false)
+const variableEditing = ref(false)
 // the url hash that links a block. Every replace of the url takes its hash
 // from here, because the route still holds a dropped hash until the
 // replace that dropped it lands
 const linkedBlockHash = ref(pageRoute.hash)
 const contentEditorRef = shallowRef<Editor | null>(null)
 const nameEditorRef = shallowRef<Editor | null>(null)
+const { usedVariableIds, totalCount: variableCount } =
+	useVariableUsage(contentEditorRef)
 const editorStore = useEditorStore()
 const mainArea = useTemplateRef("main")
 const { width: mainAreaWidth } = useElementSize(mainArea)
@@ -474,8 +478,38 @@ if (import.meta.client) {
 	)
 }
 
+// the inbox and the variables panel share one place, so opening one
+// closes the other. The variables panel stays open while it is in edit
+// mode, and the inbox waits until it leaves it.
 function toggleNotificationSidebar() {
+	if (!notificationSidebarOpen.value && variableEditing.value) {
+		showToastMessage(
+			"warning",
+			t("variable.editing-toast.title"),
+			t("variable.editing-toast.description"),
+		)
+		return
+	}
+
 	notificationSidebarOpen.value = !notificationSidebarOpen.value
+	if (notificationSidebarOpen.value) {
+		variableSidebarOpen.value = false
+	}
+}
+
+function toggleVariableSidebar() {
+	setVariableSidebarOpen(!variableSidebarOpen.value)
+}
+
+function setVariableSidebarOpen(open: boolean) {
+	if (!open && variableEditing.value) {
+		return
+	}
+
+	variableSidebarOpen.value = open
+	if (open) {
+		notificationSidebarOpen.value = false
+	}
 }
 
 // the query of this page's url with ?branch= naming the active branch.
@@ -739,6 +773,12 @@ function clearLinkedBlock() {
 			<AppSidebar
 				:all-initial-sections-loaded="allSectionsLoaded"
 				:notification-sidebar-open="notificationSidebarOpen"
+				:variable-sidebar-open="variableSidebarOpen"
+				:variable-editing="variableEditing"
+				:variable-usage="{
+					usedOnCurrentPage: usedVariableIds.size,
+					total: variableCount,
+				}"
 				@create-document="handleDocumentCreation"
 				@duplicate-document="handleDocumentDuplication"
 				@delete-document="handleDocumentDeletion"
@@ -748,9 +788,33 @@ function clearLinkedBlock() {
 				@toggle-settings="settingModalOpen = !settingModalOpen"
 				@toggle-shortcuts="shortcutsModalOpen = !shortcutsModalOpen"
 				@toggle-notifications="toggleNotificationSidebar"
+				@toggle-variables="toggleVariableSidebar"
 				@initial-load-complete="loadedSections.sidebar = true"
 			/>
-			<NotificationSidebar v-model="notificationSidebarOpen" />
+			<ExtraContextSidebar
+				v-model="notificationSidebarOpen"
+				:title="t('sidebar.notification-sheet.title')"
+				:description="t('sidebar.notification-sheet.description')"
+			>
+				<template #default="{ close }">
+					<NotificationBox @close-notification-box="close" />
+				</template>
+			</ExtraContextSidebar>
+			<ExtraContextSidebar
+				:model-value="variableSidebarOpen"
+				:title="t('variable.title')"
+				:description="t('variable.sheet-description')"
+				@update:model-value="setVariableSidebarOpen"
+			>
+				<template #default="{ close }">
+					<VariablesPanel
+						v-model:editing="variableEditing"
+						class="h-full"
+						:used-variable-ids="usedVariableIds"
+						@close-variable-panel="close"
+					/>
+				</template>
+			</ExtraContextSidebar>
 			<SettingsBaseModal
 				v-model="settingModalOpen"
 				@refresh-organization-slug="refreshOrganizationRouteSlug"

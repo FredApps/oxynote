@@ -24,7 +24,7 @@ import {
 } from "@codemirror/autocomplete"
 import { tags } from "@lezer/highlight"
 import { cn } from "~/lib/utils"
-import type { TimeRangePreset } from "../../utils"
+import type { TimeRangePreset } from "~/utils/time-range"
 import { DiffStatus } from "~/components/editor/diff/position-map"
 
 const props = defineProps<{

@@ -15,7 +15,9 @@
 		"sections": {
 			"top": {
 				"search-button": "Search",
-				"inbox": "Inbox"
+				"inbox": "Inbox",
+				"variables": "Variables",
+				"variables-usage": "{used-on-current-page} of {total} variables are used on this page"
 			},
 			"main-workspace": {
 				"heading": "Workspace",

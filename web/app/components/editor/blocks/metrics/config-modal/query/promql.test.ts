@@ -2,7 +2,7 @@ import { createRequire } from "node:module"
 import { describe, it, vi } from "vitest"
 import { toValue } from "vue"
 import type { CompletionSource } from "@codemirror/autocomplete"
-import { TimeRangePreset } from "../../utils"
+import { TimeRangePreset } from "~/utils/time-range"
 import {
 	installAutoImportGlobals,
 	stubPrometheusAPI,

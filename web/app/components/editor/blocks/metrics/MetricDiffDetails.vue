@@ -70,16 +70,13 @@ function toRow(change: AttributeChange): FieldChange {
 			)
 		case "timeRange":
 			return row(t("editor.metrics.config.time-range-label"), change, (value) =>
-				t(`editor.metrics.config.time-range-options.${displayValue(value)}`),
+				t(`general.time-range-options.${displayValue(value)}`),
 			)
 		case "refreshInterval":
 			return row(
 				t("editor.metrics.config.refresh-interval-label"),
 				change,
-				(value) =>
-					t(
-						`editor.metrics.config.refresh-interval-options.${displayValue(value)}`,
-					),
+				(value) => t(`general.refresh-interval-options.${displayValue(value)}`),
 			)
 		case "thresholds":
 			return row(t("editor.metrics.config.thresholds-label"), change, (value) =>

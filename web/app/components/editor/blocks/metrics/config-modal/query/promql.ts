@@ -8,7 +8,8 @@ import type {
 	CompletionResult,
 	CompletionContext,
 } from "@codemirror/autocomplete"
-import { resolveTimeRange, TimeRangePreset } from "../../utils"
+import { resolveTimeRange } from "../../utils"
+import { TimeRangePreset } from "~/utils/time-range"
 
 const MATCHER_PROCESSING_DEBOUNCE_MS = 700
 const PROMQL_DURATION_UNITS = new Set(["ms", "s", "m", "h", "d", "w", "y"])

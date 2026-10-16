@@ -8,7 +8,8 @@ import {
 	keywordCompletionSource,
 } from "@codemirror/lang-sql"
 import { EditorView } from "@codemirror/view"
-import { resolveTimeRange, type TimeRangePreset } from "../../utils"
+import { resolveTimeRange } from "../../utils"
+import type { TimeRangePreset } from "~/utils/time-range"
 import type {
 	Completion,
 	CompletionContext,

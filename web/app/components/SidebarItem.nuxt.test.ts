@@ -11,6 +11,7 @@ import {
 	at,
 	menuItem,
 	mountUnderSidebarProvider,
+	openTooltipText,
 	renderedIconNames,
 } from "./test-helpers"
 
@@ -278,6 +279,33 @@ describe("<SidebarItem>", { concurrent: false }, () => {
 		expect(wrapper.get("[data-slot='sidebar-menu-button']").text()).toBe(
 			"Runbook",
 		)
+	})
+
+	it("explains the count in a tooltip once it is focused", async ({
+		expect,
+	}) => {
+		const { wrapper } = await mountItem(
+			makeItem({ url: null, count: 3, countTooltip: "3 of 5 are used" }),
+		)
+
+		await wrapper.get("[data-slot='tooltip-trigger']").trigger("focus")
+		await nextTick()
+
+		expect(openTooltipText(wrapper)).toBe("3 of 5 are used")
+	})
+
+	it("ignores the pointer on a disabled item without looking disabled", async ({
+		expect,
+	}) => {
+		const onClick = vi.fn()
+		const { wrapper } = await mountItem(
+			makeItem({ url: null, onClick: onClick, disabled: true }),
+		)
+
+		const button = wrapper.get("[data-slot='sidebar-menu-button']")
+
+		expect(button.classes()).toContain("pointer-events-none")
+		expect(button.attributes("aria-disabled")).toBeUndefined()
 	})
 
 	it("marks the active item", async ({ expect }) => {

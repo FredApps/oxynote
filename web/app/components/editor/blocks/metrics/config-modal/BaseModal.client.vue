@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { cn } from "~/lib/utils"
-import { RefreshInterval, TimeRangePreset, type MetricConfig } from "../utils"
+import type { MetricConfig } from "../utils"
+import { RefreshInterval, TimeRangePreset } from "~/utils/time-range"
 import VisualizationContainer from "../VisualizationContainer.vue"
 import BottomConfig from "./BottomConfig.vue"
 import ConfigSidebar from "./ConfigSidebar.vue"
@@ -192,9 +193,7 @@ function openSettings() {
 											>
 												<Icon name="lucide:clock-9" class="size-3.5" />
 												{{
-													$t(
-														`editor.metrics.config.time-range-options.${config.timeRange}`,
-													)
+													$t(`general.time-range-options.${config.timeRange}`)
 												}}
 											</ShadcnUiButton>
 										</ShadcnUiSelectTrigger>
@@ -205,11 +204,7 @@ function openSettings() {
 												:value="timeRange"
 											>
 												<span class="text-2sm text-popover-foreground">
-													{{
-														$t(
-															`editor.metrics.config.time-range-options.${timeRange}`,
-														)
-													}}
+													{{ $t(`general.time-range-options.${timeRange}`) }}
 												</span>
 											</ShadcnUiSelectItem>
 										</ShadcnUiSelectContent>
@@ -229,9 +224,7 @@ function openSettings() {
 									>
 										<Icon name="lucide:clock-9" class="size-3.5" />
 										{{
-											$t(
-												`editor.metrics.config.time-range-options.${oldConfig.timeRange}`,
-											)
+											$t(`general.time-range-options.${oldConfig.timeRange}`)
 										}}
 									</ShadcnUiButton>
 								</div>
@@ -258,7 +251,7 @@ function openSettings() {
 												<Icon name="lucide:refresh-ccw" class="size-3.5" />
 												{{
 													$t(
-														`editor.metrics.config.refresh-interval-options-short.${config.refreshInterval}`,
+														`general.refresh-interval-options-short.${config.refreshInterval}`,
 													)
 												}}
 											</ShadcnUiButton>
@@ -274,7 +267,7 @@ function openSettings() {
 												<span class="text-2sm text-popover-foreground">
 													{{
 														$t(
-															`editor.metrics.config.refresh-interval-options.${refreshInterval}`,
+															`general.refresh-interval-options.${refreshInterval}`,
 														)
 													}}
 												</span>
@@ -297,7 +290,7 @@ function openSettings() {
 										<Icon name="lucide:refresh-ccw" class="size-3.5" />
 										{{
 											$t(
-												`editor.metrics.config.refresh-interval-options-short.${oldConfig.refreshInterval}`,
+												`general.refresh-interval-options-short.${oldConfig.refreshInterval}`,
 											)
 										}}
 									</ShadcnUiButton>

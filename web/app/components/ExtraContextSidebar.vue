@@ -2,19 +2,32 @@
 import { cn } from "~/lib/utils"
 import { useSidebar, useSidebarWidth } from "./shadcn/ui/sidebar"
 
+const props = defineProps<{
+	title: string
+	description: string
+}>()
 const open = defineModel<boolean>({ default: false })
+defineSlots<{
+	default(props: { close: () => void }): unknown
+}>()
 
 const { open: sidebarOpen, state: sidebarState } = useSidebar()
 const { width: sidebarWidth } = useSidebarWidth()
 const isMobile = useMediaQuery("(max-width: 1250px)") // match SidebarProvider (needs to fit maintainers/reviewers and other name editor things)
 
+// the panel stays beside the sidebar while closed, so it slides shut from
+// where it was instead of jumping under the sidebar first
 const leftPosition = computed(() => {
-	if (!open.value || sidebarState.value === "collapsed") {
+	if (sidebarState.value === "collapsed") {
 		return 0
 	}
 
 	return sidebarWidth.value
 })
+
+function close() {
+	open.value = false
+}
 </script>
 <template>
 	<ShadcnUiSheet
@@ -24,14 +37,14 @@ const leftPosition = computed(() => {
 	>
 		<ShadcnUiSheetContent side="left" class="w-fit p-0">
 			<ShadcnUiSheetHeader class="sr-only">
-				<ShadcnUiSheetTitle>
-					{{ $t("sidebar.notification-sheet.title") }}
-				</ShadcnUiSheetTitle>
+				<ShadcnUiSheetTitle>{{ props.title }}</ShadcnUiSheetTitle>
 				<ShadcnUiSheetDescription>
-					{{ $t("sidebar.notification-sheet.description") }}
+					{{ props.description }}
 				</ShadcnUiSheetDescription>
 			</ShadcnUiSheetHeader>
-			<NotificationBox class="w-80" @close-notification-box="open = false" />
+			<div class="h-svh w-80">
+				<slot :close="close" />
+			</div>
 		</ShadcnUiSheetContent>
 	</ShadcnUiSheet>
 	<div
@@ -54,10 +67,9 @@ const leftPosition = computed(() => {
 			"
 			:style="{ left: `${leftPosition}px` }"
 		>
-			<NotificationBox
-				class="w-[clamp(20rem,22dvw,26.25rem)]"
-				@close-notification-box="open = false"
-			/>
+			<div class="h-svh w-[clamp(20rem,22dvw,26.25rem)]">
+				<slot :close="close" />
+			</div>
 		</div>
 	</div>
 </template>

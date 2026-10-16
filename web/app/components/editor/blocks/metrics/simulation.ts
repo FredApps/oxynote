@@ -1,9 +1,9 @@
 import {
 	MetricSimulationPreset,
 	resolveTimeRange,
-	TimeRangePreset,
 	type MetricConfig,
 } from "./utils"
+import { TimeRangePreset } from "~/utils/time-range"
 
 // the preset a block starts simulating with when the user presses the
 // "simulate data" button

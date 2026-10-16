@@ -7,10 +7,9 @@ import { stubChartColorContext } from "./test-helpers"
 import {
 	defaultMetricConfig,
 	MetricSimulationPreset,
-	RefreshInterval,
-	TimeRangePreset,
 	type MetricConfig,
 } from "./utils"
+import { RefreshInterval, TimeRangePreset } from "~/utils/time-range"
 import {
 	clearQueryCache,
 	disposeMockEndpoints,

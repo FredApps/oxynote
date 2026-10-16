@@ -38,7 +38,9 @@ export interface SidebarItem {
 	icon?: string | null
 	dotColor?: string // a coloured dot rendered in place of the icon
 	count?: number | null
+	countTooltip?: string
 	active: boolean
+	disabled?: boolean
 	draggable: boolean
 	// items may only be dropped onto or next to items sharing this group,
 	// which keeps each section's rows out of every other section

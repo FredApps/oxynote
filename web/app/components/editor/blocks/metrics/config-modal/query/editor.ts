@@ -1,7 +1,7 @@
 import { EditorView } from "codemirror"
 import { EditorState } from "@codemirror/state"
 import { usePromQLLegendExtension, usePromQLQueryExtension } from "./promql"
-import type { TimeRangePreset } from "../../utils"
+import type { TimeRangePreset } from "~/utils/time-range"
 import { useSQLLegendExtension, useSQLQueryExtension } from "./sql"
 
 export const codemirrorTheme = EditorView.theme({

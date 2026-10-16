@@ -7,10 +7,9 @@ import { stubChartColorContext } from "../test-helpers"
 import {
 	defaultMetricConfig,
 	MetricSimulationPreset,
-	RefreshInterval,
-	TimeRangePreset,
 	type MetricConfig,
 } from "../utils"
+import { RefreshInterval, TimeRangePreset } from "~/utils/time-range"
 import {
 	clearQueryCache,
 	disposeMockEndpoints,
@@ -175,10 +174,10 @@ describe("<MetricConfigBaseModal>", { concurrent: false }, () => {
 		await mountModal()
 
 		expect(dialogText()).toContain(
-			t("editor.metrics.config.time-range-options.last_24_hours"),
+			t("general.time-range-options.last_24_hours"),
 		)
 		expect(dialogText()).toContain(
-			t("editor.metrics.config.refresh-interval-options-short.30s"),
+			t("general.refresh-interval-options-short.30s"),
 		)
 	})
 
@@ -200,11 +199,9 @@ describe("<MetricConfigBaseModal>", { concurrent: false }, () => {
 		await mountModal()
 
 		expect(dialogText()).toContain(
-			t("editor.metrics.config.time-range-options.last_24_hours"),
+			t("general.time-range-options.last_24_hours"),
 		)
-		expect(dialogText()).toContain(
-			t("editor.metrics.config.time-range-options.last_1_hour"),
-		)
+		expect(dialogText()).toContain(t("general.time-range-options.last_1_hour"))
 	})
 
 	it("shows the refresh interval a diff replaced beside the new one", async ({
@@ -225,10 +222,10 @@ describe("<MetricConfigBaseModal>", { concurrent: false }, () => {
 		await mountModal()
 
 		expect(dialogText()).toContain(
-			t("editor.metrics.config.refresh-interval-options-short.30s"),
+			t("general.refresh-interval-options-short.30s"),
 		)
 		expect(dialogText()).toContain(
-			t("editor.metrics.config.refresh-interval-options-short.1h"),
+			t("general.refresh-interval-options-short.1h"),
 		)
 	})
 

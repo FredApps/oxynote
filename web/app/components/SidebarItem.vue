@@ -178,6 +178,7 @@ function runAction(action: SidebarItemAction) {
 				"
 				:class="
 					cn(
+						props.item.disabled && 'pointer-events-none',
 						'flex items-center gap-1 group-data-dragged-on/sidebar-item:data-[placeholder-variant=false]:bg-drag-target/40 group-data-dragged-on/sidebar-item:data-[placeholder-variant=false]:hover:bg-drag-target/40 dark:group-data-dragged-on/sidebar-item:data-[placeholder-variant=false]:bg-drag-target dark:group-data-dragged-on/sidebar-item:data-[placeholder-variant=false]:hover:bg-drag-target',
 						'group-data-ghost/sidebar-item:bg-sidebar-accent group-data-ghost/sidebar-item:text-sidebar-accent-foreground',
 						'group-data-ghost/sidebar-item:data-[active=true]:bg-sidebar-accent group-data-ghost/sidebar-item:data-[active=true]:text-sidebar-accent-foreground',
@@ -196,8 +197,27 @@ function runAction(action: SidebarItemAction) {
 								{{ props.item.name }}
 							</span>
 						</div>
+						<ShadcnUiTooltip
+							v-if="props.item.count && props.item.countTooltip"
+							:delay-duration="600"
+						>
+							<ShadcnUiTooltipTrigger as-child>
+								<div
+									data-own-tooltip
+									class="flex min-w-5.5 items-center justify-center rounded border border-border bg-background px-1.5 py-0.5 text-xs font-medium select-none"
+								>
+									{{ props.item.count }}
+								</div>
+							</ShadcnUiTooltipTrigger>
+							<ShadcnUiTooltipContent
+								side="right"
+								class="max-w-65 text-2sm text-wrap"
+							>
+								{{ props.item.countTooltip }}
+							</ShadcnUiTooltipContent>
+						</ShadcnUiTooltip>
 						<div
-							v-if="props.item.count"
+							v-else-if="props.item.count"
 							class="flex min-w-5.5 items-center justify-center rounded border border-border bg-background px-0.5 py-0.5 text-xs font-medium select-none"
 						>
 							{{ props.item.count }}

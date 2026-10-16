@@ -15,12 +15,16 @@ import { useSidebar } from "./shadcn/ui/sidebar"
 const props = defineProps<{
 	allInitialSectionsLoaded: boolean
 	notificationSidebarOpen: boolean
+	variableSidebarOpen?: boolean
+	variableEditing?: boolean
+	variableUsage?: { usedOnCurrentPage: number; total: number }
 }>()
 const emit = defineEmits<{
 	(
 		e:
 			| "initial-load-complete"
 			| "toggle-notifications"
+			| "toggle-variables"
 			| "toggle-search"
 			| "toggle-shortcuts"
 			| "toggle-settings",
@@ -60,6 +64,9 @@ useShortcut(SHORTCUT_ACTIONS.searchForDocuments.keyboardKey, () => {
 })
 useShortcut(SHORTCUT_ACTIONS.toggleInbox.keyboardKey, () => {
 	emit("toggle-notifications")
+})
+useShortcut(SHORTCUT_ACTIONS.toggleVariables.keyboardKey, () => {
+	emit("toggle-variables")
 })
 useShortcut(SHORTCUT_ACTIONS.createNewDocument.keyboardKey, () => {
 	handleCreate({ parentId: null })
@@ -174,6 +181,28 @@ const sections = computed<Section[]>(() => {
 			draggable: false,
 			actions: [],
 			shortcutTooltip: SHORTCUT_ACTIONS.toggleInbox,
+			children: null,
+		},
+		{
+			id: "variables",
+			name: t("sidebar.sections.top.variables"),
+			count: props.variableUsage?.usedOnCurrentPage,
+			countTooltip: props.variableUsage
+				? t("sidebar.sections.top.variables-usage", {
+						"used-on-current-page": props.variableUsage.usedOnCurrentPage,
+						total: props.variableUsage.total,
+					})
+				: undefined,
+			icon: "mingcute:braces-line",
+			onClick: () => {
+				emit("toggle-variables")
+			},
+			acceptsChildren: false,
+			active: props.variableSidebarOpen,
+			disabled: props.variableEditing,
+			shortcutTooltip: SHORTCUT_ACTIONS.toggleVariables,
+			draggable: false,
+			actions: [],
 			children: null,
 		},
 	]

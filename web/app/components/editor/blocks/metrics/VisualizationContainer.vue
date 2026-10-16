@@ -4,12 +4,12 @@ import LineChart from "./visualizations/LineChart.vue"
 import GaugeChart from "./visualizations/GaugeChart.vue"
 import {
 	CONFIG_DEBOUNCE_MS,
-	RefreshInterval,
 	refreshIntervalToMs,
 	resolveTimeRange,
 	type MetricConfig,
 	type MetricSimulationPreset,
 } from "./utils"
+import { RefreshInterval } from "~/utils/time-range"
 import {
 	DEFAULT_SIMULATION_PRESET,
 	generateSimulatedQueryResults,

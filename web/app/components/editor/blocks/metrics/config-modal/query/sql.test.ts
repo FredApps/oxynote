@@ -6,7 +6,7 @@ import {
 	type Completion,
 	type CompletionSource,
 } from "@codemirror/autocomplete"
-import { TimeRangePreset } from "../../utils"
+import { TimeRangePreset } from "~/utils/time-range"
 import {
 	installAutoImportGlobals,
 	stubSQLAPI,

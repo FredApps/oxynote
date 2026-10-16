@@ -5,7 +5,7 @@ import { at } from "~/components/test-helpers"
 import {
 	stubThemeColorContext,
 	stubSelectableColors,
-} from "./test-helpers/theme"
+} from "./editor/test-helpers/theme"
 
 let palette: string[] = []
 

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import TagPill from "./TagPill.vue"
 import { availableRowWidth, stepTagFit } from "./tag-fit"
-import ColorSelect from "./ColorSelect.vue"
+import ColorSelect from "../ColorSelect.vue"
 import { cn } from "@/lib/utils"
 import { chartStyles, colorToHex } from "~/assets/css"
 import { showToastMessage } from "../toast"
@@ -224,7 +224,7 @@ function suggestedColor(): string {
 	const colors = chartStyles().selectableColors
 
 	return (
-		pickTagColor(
+		pickLeastUsedColor(
 			colors.available.map(colorToHex),
 			allTags.value.map((tag) => colorToHex(tag.color)),
 		) ?? colorToHex(colors.default)

@@ -198,7 +198,7 @@ has a border.
 
 | Shadow | Used for |
 | --- | --- |
-| `shadow-xs` | filled and outline buttons, select triggers, textareas, switches |
+| `shadow-xs` | filled and outline buttons, select triggers, switches |
 | `shadow-md` | popovers, dropdown menus, toasts |
 | `shadow-lg` | dialogs, sheets |
 | `shadow-fully-clear` (`0 0.3125rem 1.25rem rgb(0 0 0 / .15)`) | floating elements over content |
@@ -238,8 +238,9 @@ Page skeleton:
   centres it.
 - **Side panels**: the AI chat is a right-hand column in the `sidebar`
   colour with a left hairline, 30rem wide, opening over 200ms. The
-  notification panel is 20–26.25rem wide. On small screens both become
-  20rem sheets.
+  notification and variables panels share one 20–26.25rem column beside
+  the sidebar, and opening one closes the other. On small screens they
+  become 20rem sheets.
 - **Dialogs**: centred, `rounded-lg border bg-background p-6 shadow-lg`.
   Settings is 60rem wide and at most 80dvh; search is 40rem wide, pinned at
   15dvh from the top, at most 70dvh.
@@ -280,8 +281,8 @@ Sizes: `default` 36px, `sm` 32px, `2sm` 28px with 13px text, `lg` 40px.
 **Inputs.** `rounded-md border border-input bg-transparent px-3 py-1`,
 `muted-foreground` placeholder. Focus: border turns `ring` with a 3px
 `ring/50` halo. Invalid: `destructive` border. Text is 16px on phones and
-14px from `md`. In dark mode textareas and outline buttons get a faint
-`input/30` fill.
+14px from `md`. Textareas match inputs: no fill and no shadow. In dark
+mode outline buttons get a faint `input/30` fill.
 
 **Checkbox.** 16px square, `rounded-md`, hairline; checked is navy with a
 square-capped white tick that fades in over 150ms. A checked task-list
@@ -368,7 +369,8 @@ Skeletons are `rounded-md bg-primary/10` with a pulse.
 - Overlays (dialog, popover, menu, tooltip): fade in and out only. No
   zoom, no slide.
 - Sheets slide from their edge: 500ms in, 300ms out.
-- Sidebar resize and collapse: 200ms. Accordions: 200ms ease-out.
+- Sidebar resize and collapse: 200ms. Accordions and collapsible groups:
+  200ms ease-out.
 - Page content mounts hidden and fades in over 300ms once every block has
   settled, so layout never jumps in view.
 - Things that appear on hover (row actions, drag handle, block buttons)

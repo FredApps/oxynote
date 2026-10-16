@@ -219,6 +219,7 @@ export default defineNuxtConfig({
 					"en/notification.json",
 					"en/apps.json",
 					"en/oauth.json",
+					"en/variable.json",
 				],
 			},
 		],
