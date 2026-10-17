@@ -36,7 +36,12 @@ import (
 	"go.uber.org/goleak"
 )
 
-var _pgDSN string
+var (
+	_pgDSN string
+
+	// _pgContainerID is the Docker ID of the test Postgres container.
+	_pgContainerID string
+)
 
 const (
 	_pgUser string = "pgtest"
@@ -71,6 +76,7 @@ func TestMain(m *testing.M) {
 			_pgUser,
 			_pgPass,
 		),
+		pgDocker.WithVersion("18.6-alpine"),
 	))
 	if err != nil {
 		panic("cannot set up: " + err.Error())
@@ -84,6 +90,7 @@ func TestMain(m *testing.M) {
 	}()
 
 	_pgDSN = container.Host + ":" + strconv.Itoa(container.DefaultPort())
+	_pgContainerID = container.DockerID()
 
 	goleak.VerifyTestMain(m, goleak.IgnoreCurrent())
 }
