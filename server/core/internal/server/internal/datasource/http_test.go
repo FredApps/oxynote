@@ -12,10 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guregu/null/v5"
 	datasourceCore "github.com/oxynote/oxynote/server/core/internal/datasource"
 	datasourceMock "github.com/oxynote/oxynote/server/core/internal/datasource/_mock"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/processor"
 	"github.com/oxynote/oxynote/server/core/internal/server/internal/auth"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
@@ -39,7 +41,7 @@ func TestMain(m *testing.M) {
 }
 
 // check inspects the collaborators' state after a handler call.
-type check func(t *testing.T, db *DBMock, exec *runnerMock, rec *httptest.ResponseRecorder, logs *bytes.Buffer)
+type check func(t *testing.T, db *DBMock, exec *runnerMock, vars *VariableManagerMock, rec *httptest.ResponseRecorder, logs *bytes.Buffer)
 
 // checks combines the provided checks into a slice.
 func checks(cc ...check) []check { return cc }
@@ -47,7 +49,7 @@ func checks(cc ...check) []check { return cc }
 // hasResp returns a check asserting the response code and JSON body; an
 // empty body asserts an empty response.
 func hasResp(code int, body string) check {
-	return func(t *testing.T, _ *DBMock, _ *runnerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, _ *DBMock, _ *runnerMock, _ *VariableManagerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		assert.Equal(t, code, rec.Code)
 
 		if body == "" {
@@ -62,7 +64,7 @@ func hasResp(code int, body string) check {
 // hasJSONResp returns a check asserting that the response matches the
 // JSON representation of the provided value.
 func hasJSONResp(code int, v any) check {
-	return func(t *testing.T, _ *DBMock, _ *runnerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, _ *DBMock, _ *runnerMock, _ *VariableManagerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		assert.Equal(t, code, rec.Code)
 
 		exp, err := json.Marshal(v)
@@ -74,7 +76,7 @@ func hasJSONResp(code int, v any) check {
 // hasUpdateFailedLog returns a check asserting that the handler logged
 // the data source status update failure.
 func hasUpdateFailedLog() check {
-	return func(t *testing.T, _ *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, logs *bytes.Buffer) {
+	return func(t *testing.T, _ *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, logs *bytes.Buffer) {
 		assert.Contains(t, logs.String(), "cannot update data source status")
 	}
 }
@@ -82,7 +84,7 @@ func hasUpdateFailedLog() check {
 // wasDBFetchDataSourceCalled returns a check asserting the number of
 // FetchDataSource calls and their parameters.
 func wasDBFetchDataSourceCalled(count int) check {
-	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		ff := db.FetchDataSourceCalls()
 		require.Len(t, ff, count)
 
@@ -99,7 +101,7 @@ func wasDBFetchDataSourceCalled(count int) check {
 // wasDBInsertDataSourceCalled returns a check asserting the number of
 // InsertDataSource calls.
 func wasDBInsertDataSourceCalled(count int) check {
-	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		require.Len(t, db.InsertDataSourceCalls(), count)
 	}
 }
@@ -107,7 +109,7 @@ func wasDBInsertDataSourceCalled(count int) check {
 // wasDBUpdateDataSourceCalled returns a check asserting the number of
 // UpdateDataSource calls.
 func wasDBUpdateDataSourceCalled(count int) check {
-	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		require.Len(t, db.UpdateDataSourceCalls(), count)
 	}
 }
@@ -115,7 +117,7 @@ func wasDBUpdateDataSourceCalled(count int) check {
 // wasDBDeleteDataSourceCalled returns a check asserting the number of
 // DeleteDataSource calls and their parameters.
 func wasDBDeleteDataSourceCalled(count int) check {
-	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		ff := db.DeleteDataSourceCalls()
 		require.Len(t, ff, count)
 
@@ -128,10 +130,25 @@ func wasDBDeleteDataSourceCalled(count int) check {
 	}
 }
 
+// wasVariableManagerFetchTreeCalled returns a check asserting the number
+// of FetchTree calls and that each was for the session's organization and
+// user.
+func wasVariableManagerFetchTreeCalled(count int) check {
+	return func(t *testing.T, _ *DBMock, _ *runnerMock, vars *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		ff := vars.FetchTreeCalls()
+		require.Len(t, ff, count)
+
+		for _, f := range ff {
+			assert.Equal(t, _testSession.ActiveOrganizationID, f.OrganizationID)
+			assert.Equal(t, _testSession.UserID, f.UserID)
+		}
+	}
+}
+
 // wasExecutorTestConnectionCalled returns a check asserting the number of
 // TestConnection calls.
 func wasExecutorTestConnectionCalled(count int) check {
-	return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		require.Len(t, exec.runner.TestConnectionCalls(), count)
 	}
 }
@@ -293,23 +310,50 @@ func (m *runnerMock) Runner(ds datasourceCore.DataSource) datasourceCore.Runner 
 	return m.runner
 }
 
+// stubVariables returns a variable manager whose tree resolves $metric to
+// up, but only for the test session's organization and user.
+func stubVariables(err error) *VariableManagerMock {
+	return &VariableManagerMock{
+		FetchTreeFunc: func(_ context.Context, organizationID, userID string) (variable.Tree, error) {
+			if err != nil {
+				return nil, err
+			}
+
+			if organizationID != _testSession.ActiveOrganizationID || userID != _testSession.UserID {
+				return variable.Tree{}, nil
+			}
+
+			return variable.Tree{{Variables: []variable.Entry{{
+				Key:   "metric",
+				Type:  variable.TypeText,
+				Value: null.StringFrom("up"),
+			}}}}, nil
+		},
+	}
+}
+
 // prepHandler builds a handler around the provided mocks, defaulting nil
 // mocks to empty stubs, and returns the buffer its log writes to.
-func prepHandler(db *DBMock, clients *clientMocks) (*Handler, *DBMock, *runnerMock, *bytes.Buffer) {
+func prepHandler(db *DBMock, clients *clientMocks, vars *VariableManagerMock) (*Handler, *DBMock, *runnerMock, *VariableManagerMock, *bytes.Buffer) {
 	if db == nil {
 		db = &DBMock{}
+	}
+
+	if vars == nil {
+		vars = &VariableManagerMock{}
 	}
 
 	runner := newRunnerMock(clients)
 	logs := &bytes.Buffer{}
 
 	hdl := &Handler{
-		log:     slog.New(slog.NewTextHandler(logs, nil)),
-		db:      db,
-		runners: runner,
+		log:       slog.New(slog.NewTextHandler(logs, nil)),
+		db:        db,
+		runners:   runner,
+		variables: vars,
 	}
 
-	return hdl, db, runner, logs
+	return hdl, db, runner, vars, logs
 }
 
 func Test_NewHandler(t *testing.T) {
@@ -320,16 +364,19 @@ func Test_NewHandler(t *testing.T) {
 
 	runners := datasourceCore.NewManager(log, &datasourceMock.StatusStore{})
 
-	hdl := NewHandler(log, db, runners)
+	variables := &VariableManagerMock{}
+
+	hdl := NewHandler(log, db, runners, variables)
 	require.NotNil(t, hdl)
 	assert.Equal(t, log, hdl.log)
 	assert.Same(t, db, hdl.db)
 	assert.Same(t, runners, hdl.runners)
+	assert.Same(t, variables, hdl.variables)
 }
 
 func Test_Handler_CreateDataSource(t *testing.T) {
 	hasCreatedDataSourceResp := func() check {
-		return func(t *testing.T, db *DBMock, exec *runnerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		return func(t *testing.T, db *DBMock, exec *runnerMock, _ *VariableManagerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
 			ff := db.InsertDataSourceCalls()
 			require.Len(t, ff, 1)
 
@@ -423,7 +470,7 @@ func Test_Handler_CreateDataSource(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, nil)
 
 			req := prepRequest("POST", "http://test.com/", c.Body, !c.OmitSession, "")
 			rec := httptest.NewRecorder()
@@ -431,7 +478,7 @@ func Test_Handler_CreateDataSource(t *testing.T) {
 			hdl.CreateDataSource(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -487,7 +534,7 @@ func Test_Handler_FetchDataSource(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, nil)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, nil, nil)
 
 			req := prepRequest("GET", "http://test.com/", "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -495,7 +542,7 @@ func Test_Handler_FetchDataSource(t *testing.T) {
 			hdl.FetchDataSource(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -598,7 +645,7 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, nil)
 
 			req := prepRequest("POST", "http://test.com/", "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -606,7 +653,7 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 			hdl.TestDataSourceConnection(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -614,7 +661,7 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 
 func Test_Handler_FetchDataSources(t *testing.T) {
 	wasDBFetchDataSourcesCalled := func(count int) check {
-		return func(t *testing.T, db *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 			ff := db.FetchDataSourcesCalls()
 			require.Len(t, ff, count)
 
@@ -666,7 +713,7 @@ func Test_Handler_FetchDataSources(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, nil)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, nil, nil)
 
 			req := prepRequest("GET", "http://test.com/", "", !c.OmitSession, "")
 			rec := httptest.NewRecorder()
@@ -674,7 +721,7 @@ func Test_Handler_FetchDataSources(t *testing.T) {
 			hdl.FetchDataSources(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -682,7 +729,7 @@ func Test_Handler_FetchDataSources(t *testing.T) {
 
 func Test_Handler_UpdateDataSource(t *testing.T) {
 	hasUpdatedDataSourceResp := func() check {
-		return func(t *testing.T, db *DBMock, _ *runnerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
 			ff := db.UpdateDataSourceCalls()
 			require.Len(t, ff, 1)
 
@@ -803,7 +850,7 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, nil)
 
 			req := prepRequest("PUT", "http://test.com/", c.Body, !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -811,7 +858,7 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 			hdl.UpdateDataSource(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -863,7 +910,7 @@ func Test_Handler_DeleteDataSource(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, nil)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, nil, nil)
 
 			req := prepRequest("DELETE", "http://test.com/", "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -871,8 +918,60 @@ func Test_Handler_DeleteDataSource(t *testing.T) {
 			hdl.DeleteDataSource(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
+		})
+	}
+}
+
+func Test_Handler_substitute(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Variables *VariableManagerMock
+		Texts     []string
+		Result    []string
+		Err       error
+		Checks    []check
+	}{
+		"No reference skips the tree": {
+			Texts:  []string{"up", "$__from"},
+			Result: []string{"up", "$__from"},
+			Checks: checks(wasVariableManagerFetchTreeCalled(0)),
+		},
+		"Error returned by VariableManager.FetchTree": {
+			Variables: stubVariables(assert.AnError),
+			Texts:     []string{"$metric"},
+			Err:       assert.AnError,
+			Checks:    checks(wasVariableManagerFetchTreeCalled(1)),
+		},
+		"Successful substitution": {
+			Variables: stubVariables(nil),
+			Texts:     []string{"sum($metric)", "up"},
+			Result:    []string{"sum(up)", "up"},
+			Checks:    checks(wasVariableManagerFetchTreeCalled(1)),
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			hdl, db, exec, vars, logs := prepHandler(nil, nil, c.Variables)
+
+			res, err := hdl.substitute(context.Background(), _testSession, c.Texts...)
+
+			for _, ch := range c.Checks {
+				ch(t, db, exec, vars, httptest.NewRecorder(), logs)
+			}
+
+			testutil.AssertEqualError(t, c.Err, err)
+
+			if err != nil {
+				return
+			}
+
+			assert.Equal(t, c.Result, res)
 		})
 	}
 }
@@ -913,7 +1012,7 @@ func Test_Handler_persistDataSourceStatus(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, nil)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, nil, nil)
 			ds := stubDataSource(datasourceCore.TypePrometheus)
 
 			hdl.persistDataSourceStatus(prepRequest("GET", "http://test.com/", "", true, ""), ds, c.Status)
@@ -921,7 +1020,7 @@ func Test_Handler_persistDataSourceStatus(t *testing.T) {
 			assert.Equal(t, c.Result, ds.Status)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, httptest.NewRecorder(), logs)
+				ch(t, db, exec, vars, httptest.NewRecorder(), logs)
 			}
 		})
 	}

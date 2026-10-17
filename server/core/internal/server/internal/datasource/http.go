@@ -9,6 +9,7 @@ import (
 	datasourceCore "github.com/oxynote/oxynote/server/core/internal/datasource"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/processor"
 	"github.com/oxynote/oxynote/server/core/internal/server/internal/auth"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/oxynote/oxynote/server/core/pkg/errutil"
 	"github.com/oxynote/oxynote/server/core/pkg/httpserver"
 	"github.com/rs/xid"
@@ -20,18 +21,20 @@ var ErrQueryRequired = errutil.New(http.StatusBadRequest, "query.required", "Que
 
 // Handler holds dependencies required for data source operations.
 type Handler struct {
-	log     *slog.Logger
-	db      DB
-	runners Runners
+	log       *slog.Logger
+	db        DB
+	runners   Runners
+	variables VariableManager
 }
 
 // NewHandler creates a new handler instance with the provided logger,
-// database and runner manager.
-func NewHandler(log *slog.Logger, db DB, runners Runners) *Handler {
+// database, runner manager and variable manager.
+func NewHandler(log *slog.Logger, db DB, runners Runners, variables VariableManager) *Handler {
 	return &Handler{
-		log:     log,
-		db:      db,
-		runners: runners,
+		log:       log,
+		db:        db,
+		runners:   runners,
+		variables: variables,
 	}
 }
 
@@ -242,6 +245,21 @@ func (h *Handler) persistDataSourceStatus(
 	}
 }
 
+// substitute returns the texts with the session user's variables
+// substituted. The tree is fetched only when a text references one.
+func (h *Handler) substitute(ctx context.Context, session auth.Session, texts ...string) ([]string, error) {
+	if !variable.HasReference(texts...) {
+		return texts, nil
+	}
+
+	vars, err := h.variables.FetchTree(ctx, session.ActiveOrganizationID, session.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	return vars.Substitute(texts...), nil
+}
+
 // DB is an interface that handles communication with the data source database.
 //
 //go:generate ../../../../scripts/codegen/mock -t internal DB db
@@ -270,4 +288,13 @@ type Runners interface {
 	// Runner should return the runner that operates the given data
 	// source.
 	Runner(ds datasourceCore.DataSource) datasourceCore.Runner
+}
+
+// VariableManager hands out the variables a query references.
+//
+//go:generate ../../../../scripts/codegen/mock -t internal VariableManager variable_manager
+type VariableManager interface {
+	// FetchTree should return the organization's variables, each with
+	// the value the user set.
+	FetchTree(ctx context.Context, organizationID, userID string) (variable.Tree, error)
 }

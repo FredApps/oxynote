@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/guregu/null/v5"
 	"github.com/oxynote/oxynote/server/core/internal/document"
@@ -19,6 +20,10 @@ import (
 	"github.com/rs/xid"
 	"github.com/shopspring/decimal"
 )
+
+// _maxValueLength is the most characters a value or an option holds, so
+// a query that references one many times stays small.
+const _maxValueLength = 128
 
 // All available Type constants.
 const (
@@ -83,6 +88,10 @@ var (
 	// ErrInvalidOption is returned when an option is given an empty value.
 	ErrInvalidOption = errutil.New(http.StatusBadRequest, "variable.invalid_option", "option value cannot be empty")
 
+	// ErrValueTooLong is returned when a value, a default or an option
+	// holds more than _maxValueLength characters.
+	ErrValueTooLong = errutil.New(http.StatusBadRequest, "variable.value_too_long", "value cannot be longer than 128 characters")
+
 	// ErrDuplicateOption is returned when a variable's input names the
 	// same option twice.
 	ErrDuplicateOption = errutil.New(http.StatusBadRequest, "variable.duplicate_option", "option is listed more than once")
@@ -116,8 +125,18 @@ var (
 	ErrInvalidSortIndex = errutil.New(http.StatusBadRequest, "variable.invalid_sort_index", "sort index is out of range")
 )
 
-// _keyPattern is the shape every variable key has.
-var _keyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+var (
+	// _keyPattern is the shape every variable key has.
+	_keyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+	// _referencePattern matches a $ and the whole word after it, so a
+	// longer word is never cut down to a shorter key.
+	_referencePattern = regexp.MustCompile(`\$[A-Za-z_][A-Za-z0-9_]*`)
+
+	// _keyReferencePattern matches the start of a reference that can name
+	// a key. Macros such as $__from and placeholders such as $1 cannot.
+	_keyReferencePattern = regexp.MustCompile(`\$[a-z]`)
+)
 
 // Type represents the kind of value a variable holds.
 type Type string
@@ -394,6 +413,10 @@ func (v Variable) apply(inp Input) Variable {
 // options for a list, a decimal for a number, a preset for a time range
 // and anything for text.
 func (v Variable) ValidateValue(value string) error {
+	if utf8.RuneCountInString(value) > _maxValueLength {
+		return ErrValueTooLong
+	}
+
 	switch v.Type {
 	case TypeList:
 		if !slices.ContainsFunc(v.Options, func(o Option) bool { return o.ID.String() == value }) {
@@ -511,6 +534,10 @@ func (vi Input) Validate() error {
 			return ErrInvalidOption
 		}
 
+		if utf8.RuneCountInString(oi.Value) > _maxValueLength {
+			return ErrValueTooLong
+		}
+
 		if !oi.ID.Valid {
 			continue
 		}
@@ -589,6 +616,26 @@ type Entry struct {
 	Value null.String `json:"value" db:"value"`
 }
 
+// Resolved returns the value the user sees: their own, else the default.
+// A list resolves to the text of the option, not its id.
+func (e Entry) Resolved() string {
+	value := e.Value.ValueOrZero()
+	if !e.Value.Valid {
+		value = e.DefaultValue.ValueOrZero()
+	}
+
+	if e.Type != TypeList {
+		return value
+	}
+
+	i := slices.IndexFunc(e.Options, func(o Option) bool { return o.ID.String() == value })
+	if i < 0 {
+		return ""
+	}
+
+	return e.Options[i].Value
+}
+
 // Tree represents an organization's groups in order, each with its
 // variables.
 type Tree []GroupTree
@@ -617,6 +664,39 @@ func NewTree(groups []Group, entries []Entry) Tree {
 	}
 
 	return tree
+}
+
+// Substitute returns the texts with every $key replaced by the resolved
+// value of the variable with that key. The value goes in raw. A reference
+// to no variable, such as $1 or the $__from macro, stays as written.
+func (t Tree) Substitute(texts ...string) []string {
+	values := make(map[string]string)
+
+	for _, g := range t {
+		for _, e := range g.Variables {
+			values[e.Key] = e.Resolved()
+		}
+	}
+
+	out := make([]string, len(texts))
+
+	for i, text := range texts {
+		out[i] = _referencePattern.ReplaceAllStringFunc(text, func(ref string) string {
+			if value, ok := values[ref[1:]]; ok {
+				return value
+			}
+
+			return ref
+		})
+	}
+
+	return out
+}
+
+// HasReference reports whether any of the texts may reference a
+// variable, so a caller can skip fetching the tree when none does.
+func HasReference(texts ...string) bool {
+	return slices.ContainsFunc(texts, _keyReferencePattern.MatchString)
 }
 
 // PlaceID returns a copy of ids with id at the given index, taken out of

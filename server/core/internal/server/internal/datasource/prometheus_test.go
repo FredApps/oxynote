@@ -100,7 +100,7 @@ func Test_Handler_FetchPrometheusDataSourceMetadata(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, nil)
 
 			req := prepRequest("GET", "http://test.com/", "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -108,7 +108,7 @@ func Test_Handler_FetchPrometheusDataSourceMetadata(t *testing.T) {
 			hdl.FetchPrometheusDataSourceMetadata(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -116,7 +116,7 @@ func Test_Handler_FetchPrometheusDataSourceMetadata(t *testing.T) {
 
 func Test_Handler_FetchPrometheusDataSourceLabelNames(t *testing.T) {
 	wasExecutorPrometheusLabelNamesCalled := func(count int) check {
-		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 			ff := exec.prometheus.LabelNamesCalls()
 			require.Len(t, ff, count)
 
@@ -145,6 +145,7 @@ func Test_Handler_FetchPrometheusDataSourceLabelNames(t *testing.T) {
 	cc := map[string]struct {
 		DB          *DBMock
 		Clients     *clientMocks
+		Variables   *VariableManagerMock
 		Target      string
 		OmitSession bool
 		ID          string
@@ -213,6 +214,31 @@ func Test_Handler_FetchPrometheusDataSourceLabelNames(t *testing.T) {
 				hasResp(http.StatusOK, `{"result":["__name__"]}`),
 				wasDBUpdateDataSourceCalled(0),
 				wasExecutorPrometheusLabelNamesCalled(1),
+				wasVariableManagerFetchTreeCalled(0),
+			),
+		},
+		"Error returned by VariableManager.FetchTree": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePrometheus), nil),
+			Variables: stubVariables(assert.AnError),
+			Target:    "http://test.com/?matchers=$metric",
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasExecutorPrometheusLabelNamesCalled(0),
+				wasVariableManagerFetchTreeCalled(1),
+			),
+		},
+		"Substituted variables": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePrometheus), nil),
+			Clients:   stubClients(processor.ConnectionStatusSuccess, &processor.PrometheusLabelNamesResult{Result: []string{"__name__"}}, nil),
+			Variables: stubVariables(nil),
+			Target:    "http://test.com/?matchers=$metric",
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusOK, `{"result":["__name__"]}`),
+				wasDBUpdateDataSourceCalled(0),
+				wasExecutorPrometheusLabelNamesCalled(1),
+				wasVariableManagerFetchTreeCalled(1),
 			),
 		},
 	}
@@ -221,7 +247,7 @@ func Test_Handler_FetchPrometheusDataSourceLabelNames(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, c.Variables)
 
 			req := prepRequest("GET", c.Target, "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -229,7 +255,7 @@ func Test_Handler_FetchPrometheusDataSourceLabelNames(t *testing.T) {
 			hdl.FetchPrometheusDataSourceLabelNames(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -237,7 +263,7 @@ func Test_Handler_FetchPrometheusDataSourceLabelNames(t *testing.T) {
 
 func Test_Handler_FetchPrometheusDataSourceLabelValues(t *testing.T) {
 	wasExecutorPrometheusLabelValuesCalled := func(count int) check {
-		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 			ff := exec.prometheus.LabelValuesCalls()
 			require.Len(t, ff, count)
 
@@ -267,6 +293,7 @@ func Test_Handler_FetchPrometheusDataSourceLabelValues(t *testing.T) {
 	cc := map[string]struct {
 		DB          *DBMock
 		Clients     *clientMocks
+		Variables   *VariableManagerMock
 		Target      string
 		OmitSession bool
 		ID          string
@@ -345,6 +372,31 @@ func Test_Handler_FetchPrometheusDataSourceLabelValues(t *testing.T) {
 				hasResp(http.StatusOK, `{"result":["a","b"]}`),
 				wasDBUpdateDataSourceCalled(0),
 				wasExecutorPrometheusLabelValuesCalled(1),
+				wasVariableManagerFetchTreeCalled(0),
+			),
+		},
+		"Error returned by VariableManager.FetchTree": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePrometheus), nil),
+			Variables: stubVariables(assert.AnError),
+			Target:    "http://test.com/?matchers=$metric",
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasExecutorPrometheusLabelValuesCalled(0),
+				wasVariableManagerFetchTreeCalled(1),
+			),
+		},
+		"Substituted variables": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePrometheus), nil),
+			Clients:   stubClients(processor.ConnectionStatusSuccess, &processor.PrometheusLabelValuesResult{Result: []string{"a", "b"}}, nil),
+			Variables: stubVariables(nil),
+			Target:    "http://test.com/?matchers=$metric",
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusOK, `{"result":["a","b"]}`),
+				wasDBUpdateDataSourceCalled(0),
+				wasExecutorPrometheusLabelValuesCalled(1),
+				wasVariableManagerFetchTreeCalled(1),
 			),
 		},
 	}
@@ -353,7 +405,7 @@ func Test_Handler_FetchPrometheusDataSourceLabelValues(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, c.Variables)
 
 			req := prepRequest("GET", c.Target, "", !c.OmitSession, c.ID)
 
@@ -366,7 +418,7 @@ func Test_Handler_FetchPrometheusDataSourceLabelValues(t *testing.T) {
 			hdl.FetchPrometheusDataSourceLabelValues(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -374,7 +426,7 @@ func Test_Handler_FetchPrometheusDataSourceLabelValues(t *testing.T) {
 
 func Test_Handler_FetchPrometheusDataSourceSeries(t *testing.T) {
 	wasExecutorPrometheusSeriesCalled := func(count int) check {
-		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 			ff := exec.prometheus.SeriesCalls()
 			require.Len(t, ff, count)
 
@@ -403,6 +455,7 @@ func Test_Handler_FetchPrometheusDataSourceSeries(t *testing.T) {
 	cc := map[string]struct {
 		DB          *DBMock
 		Clients     *clientMocks
+		Variables   *VariableManagerMock
 		Target      string
 		OmitSession bool
 		ID          string
@@ -471,6 +524,31 @@ func Test_Handler_FetchPrometheusDataSourceSeries(t *testing.T) {
 				hasResp(http.StatusOK, `{"result":[{"job":"prometheus"}]}`),
 				wasDBUpdateDataSourceCalled(0),
 				wasExecutorPrometheusSeriesCalled(1),
+				wasVariableManagerFetchTreeCalled(0),
+			),
+		},
+		"Error returned by VariableManager.FetchTree": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePrometheus), nil),
+			Variables: stubVariables(assert.AnError),
+			Target:    "http://test.com/?matchers=$metric",
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasExecutorPrometheusSeriesCalled(0),
+				wasVariableManagerFetchTreeCalled(1),
+			),
+		},
+		"Substituted variables": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePrometheus), nil),
+			Clients:   stubClients(processor.ConnectionStatusSuccess, &processor.PrometheusSeriesResult{Result: []model.LabelSet{{"job": "prometheus"}}}, nil),
+			Variables: stubVariables(nil),
+			Target:    "http://test.com/?matchers=$metric",
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusOK, `{"result":[{"job":"prometheus"}]}`),
+				wasDBUpdateDataSourceCalled(0),
+				wasExecutorPrometheusSeriesCalled(1),
+				wasVariableManagerFetchTreeCalled(1),
 			),
 		},
 	}
@@ -479,7 +557,7 @@ func Test_Handler_FetchPrometheusDataSourceSeries(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, c.Variables)
 
 			req := prepRequest("GET", c.Target, "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -487,7 +565,7 @@ func Test_Handler_FetchPrometheusDataSourceSeries(t *testing.T) {
 			hdl.FetchPrometheusDataSourceSeries(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}

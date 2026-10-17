@@ -16,7 +16,7 @@ import (
 
 func Test_Handler_FetchSQLQueryLabels(t *testing.T) {
 	wasExecutorSQLQueryLabelsCalled := func(count int) check {
-		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 			ff := exec.sql.QueryLabelsCalls()
 			require.Len(t, ff, count)
 
@@ -46,6 +46,7 @@ func Test_Handler_FetchSQLQueryLabels(t *testing.T) {
 	cc := map[string]struct {
 		DB          *DBMock
 		Clients     *clientMocks
+		Variables   *VariableManagerMock
 		Target      string
 		OmitSession bool
 		ID          string
@@ -133,6 +134,31 @@ func Test_Handler_FetchSQLQueryLabels(t *testing.T) {
 				hasResp(http.StatusOK, `{"labels":{"host":"a"}}`),
 				wasDBUpdateDataSourceCalled(0),
 				wasExecutorSQLQueryLabelsCalled(1),
+				wasVariableManagerFetchTreeCalled(0),
+			),
+		},
+		"Error returned by VariableManager.FetchTree": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePostgreSQL), nil),
+			Variables: stubVariables(assert.AnError),
+			Target:    "http://test.com/?q=$metric&from=2024-01-01T00:00:00Z&to=2024-01-02T00:00:00Z",
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasExecutorSQLQueryLabelsCalled(0),
+				wasVariableManagerFetchTreeCalled(1),
+			),
+		},
+		"Substituted variables": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePostgreSQL), nil),
+			Clients:   stubClients(processor.ConnectionStatusSuccess, map[string]string{"host": "a"}, nil),
+			Variables: stubVariables(nil),
+			Target:    "http://test.com/?q=$metric&from=2024-01-01T00:00:00Z&to=2024-01-02T00:00:00Z",
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusOK, `{"labels":{"host":"a"}}`),
+				wasDBUpdateDataSourceCalled(0),
+				wasExecutorSQLQueryLabelsCalled(1),
+				wasVariableManagerFetchTreeCalled(1),
 			),
 		},
 	}
@@ -141,7 +167,7 @@ func Test_Handler_FetchSQLQueryLabels(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, c.Variables)
 
 			req := prepRequest("GET", c.Target, "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -149,7 +175,7 @@ func Test_Handler_FetchSQLQueryLabels(t *testing.T) {
 			hdl.FetchSQLQueryLabels(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -157,7 +183,7 @@ func Test_Handler_FetchSQLQueryLabels(t *testing.T) {
 
 func Test_Handler_FetchSQLMetadata(t *testing.T) {
 	wasExecutorSQLMetadataCalled := func(count int) check {
-		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 			ff := exec.sql.MetadataCalls()
 			require.Len(t, ff, count)
 
@@ -250,7 +276,7 @@ func Test_Handler_FetchSQLMetadata(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, nil)
 
 			req := prepRequest("GET", "http://test.com/", "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -258,7 +284,7 @@ func Test_Handler_FetchSQLMetadata(t *testing.T) {
 			hdl.FetchSQLMetadata(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}

@@ -18,6 +18,10 @@ import (
 // type, and a complete time range.
 const _testGenericQueryTarget = "http://test.com/?q=up&chartType=line_chart&from=2024-01-01T00:00:00Z&to=2024-01-02T00:00:00Z"
 
+// _testVariableQueryTarget is the generic query target whose query is a
+// variable that stubVariables resolves to up.
+const _testVariableQueryTarget = "http://test.com/?q=$metric&chartType=line_chart&from=2024-01-01T00:00:00Z&to=2024-01-02T00:00:00Z"
+
 // stubPrometheusQueryClients returns the clients a runner hands out,
 // whose Prometheus query yields the provided values. A status the
 // connection refused is how the accessor fails rather than something the
@@ -61,16 +65,29 @@ func stubPostgreSQLQueryClients(cs processor.ConnectionStatus, result *processor
 
 func Test_Handler_QueryDataSource(t *testing.T) {
 	wasExecutorQueryCalled := func(prometheus, mysql, postgresql int) check {
-		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 			assert.Len(t, exec.prometheus.QueryRangeCalls(), prometheus)
 			assert.Len(t, exec.mySQL.QueryCalls(), mysql)
 			assert.Len(t, exec.postgreSQL.QueryCalls(), postgresql)
+
+			for _, f := range exec.prometheus.QueryRangeCalls() {
+				assert.Equal(t, "up", f.Q)
+			}
+
+			for _, f := range exec.mySQL.QueryCalls() {
+				assert.Equal(t, "up", f.Q)
+			}
+
+			for _, f := range exec.postgreSQL.QueryCalls() {
+				assert.Equal(t, "up", f.Q)
+			}
 		}
 	}
 
 	cc := map[string]struct {
 		DB          *DBMock
 		Clients     *clientMocks
+		Variables   *VariableManagerMock
 		Target      string
 		OmitSession bool
 		ID          string
@@ -175,6 +192,7 @@ func Test_Handler_QueryDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusOK, `{"status":"ok","data":[{"labels":{"job":"a"},"metrics":[[1700000000,10]]}]}`),
 				wasExecutorQueryCalled(1, 0, 0),
+				wasVariableManagerFetchTreeCalled(0),
 			),
 		},
 		"Prometheus dispatch": {
@@ -185,6 +203,7 @@ func Test_Handler_QueryDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusOK, `{"status":"no-data"}`),
 				wasExecutorQueryCalled(1, 0, 0),
+				wasVariableManagerFetchTreeCalled(0),
 			),
 		},
 		"PostgreSQL dispatch": {
@@ -195,6 +214,7 @@ func Test_Handler_QueryDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusOK, `{"status":"no-data"}`),
 				wasExecutorQueryCalled(0, 0, 1),
+				wasVariableManagerFetchTreeCalled(0),
 			),
 		},
 		"MariaDB dispatch": {
@@ -205,6 +225,7 @@ func Test_Handler_QueryDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusOK, `{"status":"no-data"}`),
 				wasExecutorQueryCalled(0, 1, 0),
+				wasVariableManagerFetchTreeCalled(0),
 			),
 		},
 		"MySQL dispatch": {
@@ -215,6 +236,54 @@ func Test_Handler_QueryDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusOK, `{"status":"no-data"}`),
 				wasExecutorQueryCalled(0, 1, 0),
+				wasVariableManagerFetchTreeCalled(0),
+			),
+		},
+		"Error returned by VariableManager.FetchTree": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePrometheus), nil),
+			Variables: stubVariables(assert.AnError),
+			Target:    _testVariableQueryTarget,
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasExecutorQueryCalled(0, 0, 0),
+				wasVariableManagerFetchTreeCalled(1),
+			),
+		},
+		"Prometheus substituted variables": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePrometheus), nil),
+			Clients:   stubPrometheusQueryClients(processor.ConnectionStatusSuccess, nil, nil),
+			Variables: stubVariables(nil),
+			Target:    _testVariableQueryTarget,
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusOK, `{"status":"no-data"}`),
+				wasExecutorQueryCalled(1, 0, 0),
+				wasVariableManagerFetchTreeCalled(1),
+			),
+		},
+		"PostgreSQL substituted variables": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypePostgreSQL), nil),
+			Clients:   stubPostgreSQLQueryClients(processor.ConnectionStatusSuccess, nil, nil),
+			Variables: stubVariables(nil),
+			Target:    _testVariableQueryTarget,
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusOK, `{"status":"no-data"}`),
+				wasExecutorQueryCalled(0, 0, 1),
+				wasVariableManagerFetchTreeCalled(1),
+			),
+		},
+		"MySQL substituted variables": {
+			DB:        stubDB(stubDataSource(datasourceCore.TypeMySQL), nil),
+			Clients:   stubMySQLQueryClients(processor.ConnectionStatusSuccess, nil, nil),
+			Variables: stubVariables(nil),
+			Target:    _testVariableQueryTarget,
+			ID:        _testID.String(),
+			Checks: checks(
+				hasResp(http.StatusOK, `{"status":"no-data"}`),
+				wasExecutorQueryCalled(0, 1, 0),
+				wasVariableManagerFetchTreeCalled(1),
 			),
 		},
 	}
@@ -223,7 +292,7 @@ func Test_Handler_QueryDataSource(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, c.Variables)
 
 			req := prepRequest("GET", c.Target, "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -231,7 +300,7 @@ func Test_Handler_QueryDataSource(t *testing.T) {
 			hdl.QueryDataSource(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}

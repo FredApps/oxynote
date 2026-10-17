@@ -1,6 +1,7 @@
 package variable
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/guregu/null/v5"
@@ -341,6 +342,15 @@ func Test_Variable_ValidateValue(t *testing.T) {
 			Value: "two",
 			Err:   ErrInvalidNumber,
 		},
+		"Text at the length limit": {
+			Type:  TypeText,
+			Value: strings.Repeat("ą", 128),
+		},
+		"Text over the length limit": {
+			Type:  TypeText,
+			Value: strings.Repeat("a", 129),
+			Err:   ErrValueTooLong,
+		},
 		"Empty number": {
 			Type:  TypeNumber,
 			Value: "",
@@ -494,6 +504,10 @@ func Test_Input_Validate(t *testing.T) {
 			Input: with(func(vi *Input) { vi.Options = []OptionInput{{Value: ""}} }),
 			Err:   ErrInvalidOption,
 		},
+		"List with an option over the length limit": {
+			Input: with(func(vi *Input) { vi.Options = []OptionInput{{Value: strings.Repeat("a", 129)}} }),
+			Err:   ErrValueTooLong,
+		},
 		"List naming one option twice": {
 			Input: with(func(vi *Input) {
 				vi.Options = []OptionInput{{ID: null.ValueFrom(dupID), Value: "a"}, {ID: null.ValueFrom(dupID), Value: "b"}}
@@ -581,6 +595,161 @@ func Test_NewTree(t *testing.T) {
 		{Group: g1, Variables: []Entry{v1, v2}},
 		{Group: g2, Variables: []Entry{}},
 	}, tree)
+}
+
+func Test_Entry_Resolved(t *testing.T) {
+	t.Parallel()
+
+	a := Option{ID: xid.New(), Value: "prod"}
+	b := Option{ID: xid.New(), Value: "staging"}
+
+	cc := map[string]struct {
+		Entry  Entry
+		Result string
+	}{
+		"Own value": {
+			Entry:  Entry{Type: TypeText, DefaultValue: null.StringFrom("x"), Value: null.StringFrom("y")},
+			Result: "y",
+		},
+		"Default value": {
+			Entry:  Entry{Type: TypeText, DefaultValue: null.StringFrom("x")},
+			Result: "x",
+		},
+		"No value": {
+			Entry: Entry{Type: TypeText},
+		},
+		"Number": {
+			Entry:  Entry{Type: TypeNumber, DefaultValue: null.StringFrom("1.5")},
+			Result: "1.5",
+		},
+		"Time range": {
+			Entry:  Entry{Type: TypeTimeRange, DefaultValue: null.StringFrom("last_24_hours")},
+			Result: "last_24_hours",
+		},
+		"List own option": {
+			Entry:  Entry{Type: TypeList, DefaultValue: null.StringFrom(a.ID.String()), Options: []Option{a, b}, Value: null.StringFrom(b.ID.String())},
+			Result: "staging",
+		},
+		"List default option": {
+			Entry:  Entry{Type: TypeList, DefaultValue: null.StringFrom(a.ID.String()), Options: []Option{a, b}},
+			Result: "prod",
+		},
+		"List unknown option": {
+			Entry: Entry{Type: TypeList, Options: []Option{a, b}, Value: null.StringFrom(xid.New().String())},
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Result, c.Entry.Resolved())
+		})
+	}
+}
+
+func Test_Tree_Substitute(t *testing.T) {
+	t.Parallel()
+
+	env := Option{ID: xid.New(), Value: "prod"}
+
+	tree := Tree{
+		{Variables: []Entry{
+			{Key: "metric_range", Type: TypeTimeRange, DefaultValue: null.StringFrom("last_24_hours")},
+			{Key: "env", Type: TypeList, DefaultValue: null.StringFrom(env.ID.String()), Options: []Option{env}},
+		}},
+		{Variables: []Entry{
+			{Key: "step", Type: TypeText, DefaultValue: null.StringFrom("5m"), Value: null.StringFrom("1m")},
+			{Key: "name", Type: TypeText, Value: null.StringFrom("o'brien")},
+		}},
+	}
+
+	cc := map[string]struct {
+		Texts  []string
+		Result []string
+	}{
+		"No texts": {
+			Result: []string{},
+		},
+		"Several texts": {
+			Texts:  []string{"$env", "up", "$step"},
+			Result: []string{"prod", "up", "1m"},
+		},
+		"No reference": {
+			Texts:  []string{"SELECT 1"},
+			Result: []string{"SELECT 1"},
+		},
+		"Own value": {
+			Texts:  []string{"rate(x[$step])"},
+			Result: []string{"rate(x[1m])"},
+		},
+		"Default value": {
+			Texts:  []string{"SELECT '$metric_range'"},
+			Result: []string{"SELECT 'last_24_hours'"},
+		},
+		"List option text": {
+			Texts:  []string{`up{env="$env"}`},
+			Result: []string{`up{env="prod"}`},
+		},
+		"Raw value": {
+			Texts:  []string{"WHERE name = '$name'"},
+			Result: []string{"WHERE name = 'o'brien'"},
+		},
+		"Inside a word": {
+			Texts:  []string{"requests_$env"},
+			Result: []string{"requests_prod"},
+		},
+		"Several references": {
+			Texts:  []string{"$env $step $env"},
+			Result: []string{"prod 1m prod"},
+		},
+		"Longer word": {
+			Texts:  []string{"$metric_range_x $envX"},
+			Result: []string{"$metric_range_x $envX"},
+		},
+		"Unknown name": {
+			Texts:  []string{"$other"},
+			Result: []string{"$other"},
+		},
+		"Macros and placeholders": {
+			Texts:  []string{"$1 $__from ${__from} $__timeGroup(time, $step)"},
+			Result: []string{"$1 $__from ${__from} $__timeGroup(time, 1m)"},
+		},
+		"Unsupported syntax": {
+			Texts:  []string{"${env} [[env]] ${env:sqlstring} $"},
+			Result: []string{"${env} [[env]] ${env:sqlstring} $"},
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Result, tree.Substitute(c.Texts...))
+		})
+	}
+}
+
+func Test_HasReference(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Texts  []string
+		Result bool
+	}{
+		"No texts":           {},
+		"No reference":       {Texts: []string{"up", "SELECT 1"}},
+		"Macros and numbers": {Texts: []string{"$__from ${__to} $1 $Env $"}},
+		"Reference":          {Texts: []string{"up", `up{env="$env"}`}, Result: true},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Result, HasReference(c.Texts...))
+		})
+	}
 }
 
 func Test_PlaceID(t *testing.T) {

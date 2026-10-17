@@ -4,12 +4,14 @@ import (
 	"context"
 	"maps"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/oxynote/oxynote/server/core/internal/datasource"
 	datasourceMock "github.com/oxynote/oxynote/server/core/internal/datasource/_mock"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/processor"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/oxynote/oxynote/server/core/pkg/errutil"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/oxynote/oxynote/server/core/pkg/timeutil"
@@ -452,7 +454,7 @@ func Test_listPrometheusLabels_Execute(t *testing.T) {
 
 	client := &datasourceMock.Prometheus{
 		LabelNamesFunc: func(_ context.Context, matchers []string, tr processor.TimeRange) (*processor.PrometheusLabelNamesResult, error) {
-			if len(matchers) > 0 && matchers[0] == "boom" {
+			if len(matchers) > 0 && (matchers[0] == "boom" || strings.Contains(matchers[0], "$")) {
 				return nil, assert.AnError
 			}
 
@@ -460,8 +462,8 @@ func Test_listPrometheusLabels_Execute(t *testing.T) {
 
 			return &processor.PrometheusLabelNamesResult{Result: []string{"job"}}, nil
 		},
-		LabelValuesFunc: func(_ context.Context, label string, _ []string, _ processor.TimeRange) (*processor.PrometheusLabelValuesResult, error) {
-			if label == "boom" {
+		LabelValuesFunc: func(_ context.Context, label string, matchers []string, _ processor.TimeRange) (*processor.PrometheusLabelValuesResult, error) {
+			if label == "boom" || (len(matchers) > 0 && strings.Contains(matchers[0], "$")) {
 				return nil, assert.AnError
 			}
 
@@ -469,7 +471,32 @@ func Test_listPrometheusLabels_Execute(t *testing.T) {
 		},
 	}
 
+	// a $ left in a matcher fails the read, so the substitution cases pass
+	// only when every reference was replaced from stubVariableTree.
 	cc := map[string]dataSourceCase{
+		"The label names with variables substituted": {
+			Type:     datasource.TypePrometheus,
+			Runner:   prometheusRunner(client),
+			Args:     `{"data_source_id":"` + id + `","matchers":["up{region=\"$region\"}"]}`,
+			Contains: `["job"]`,
+		},
+		"The label values with variables substituted": {
+			Type:     datasource.TypePrometheus,
+			Runner:   prometheusRunner(client),
+			Args:     `{"data_source_id":"` + id + `","label":"job","matchers":["up{region=\"$region\"}"]}`,
+			Contains: `["api"]`,
+		},
+		"Error returned by VariableManager.FetchTree": {
+			Type: datasource.TypePrometheus,
+			Deps: func() *Deps {
+				d := dataSourceDeps(t, datasource.TypePrometheus, prometheusRunner(client))
+				d.variableMan = failingTreeManager()
+
+				return d
+			}(),
+			Args: `{"data_source_id":"` + id + `","matchers":["up{region=\"$region\"}"]}`,
+			Err:  assert.AnError,
+		},
 		"The label names on the selected series": {
 			Type:     datasource.TypePrometheus,
 			Runner:   prometheusRunner(client),
@@ -576,7 +603,7 @@ func Test_listPrometheusSeries_Execute(t *testing.T) {
 
 	client := &datasourceMock.Prometheus{
 		SeriesFunc: func(_ context.Context, matchers []string, _ processor.TimeRange) (*processor.PrometheusSeriesResult, error) {
-			if matchers[0] == "boom" {
+			if matchers[0] == "boom" || strings.Contains(matchers[0], "$") {
 				return nil, assert.AnError
 			}
 
@@ -588,7 +615,26 @@ func Test_listPrometheusSeries_Execute(t *testing.T) {
 		},
 	}
 
+	// a $ left in a matcher fails the read, so the substitution case passes
+	// only when every reference was replaced from stubVariableTree.
 	cc := map[string]dataSourceCase{
+		"The series with variables substituted": {
+			Type:     datasource.TypePrometheus,
+			Runner:   prometheusRunner(client),
+			Args:     `{"data_source_id":"` + id + `","matchers":["{region=\"$region\"}"]}`,
+			Contains: "api",
+		},
+		"Error returned by VariableManager.FetchTree": {
+			Type: datasource.TypePrometheus,
+			Deps: func() *Deps {
+				d := dataSourceDeps(t, datasource.TypePrometheus, prometheusRunner(client))
+				d.variableMan = failingTreeManager()
+
+				return d
+			}(),
+			Args: `{"data_source_id":"` + id + `","matchers":["{region=\"$region\"}"]}`,
+			Err:  assert.AnError,
+		},
 		"The series the matchers select": {
 			Type:     datasource.TypePrometheus,
 			Runner:   prometheusRunner(client),
@@ -720,7 +766,7 @@ func Test_queryDataSource_Execute(t *testing.T) {
 	prom := func(res *processor.PrometheusQueryResult) *datasourceMock.Prometheus {
 		return &datasourceMock.Prometheus{
 			QueryRangeFunc: func(_ context.Context, q string, _ processor.TimeRange) (*processor.PrometheusQueryResult, error) {
-				if q == "boom" {
+				if q == "boom" || strings.Contains(q, "$") {
 					return nil, assert.AnError
 				}
 
@@ -735,10 +781,10 @@ func Test_queryDataSource_Execute(t *testing.T) {
 
 	pg := &datasourceMock.PostgreSQL{
 		QueryFunc: func(_ context.Context, q string, _ processor.TimeRange) (*processor.PostgreSQLQueryResult, error) {
-			switch q {
-			case "boom":
+			switch {
+			case q == "boom", strings.Contains(q, "$"):
 				return nil, assert.AnError
-			case "empty":
+			case q == "empty":
 				//nolint:nilnil // an absent result is what the executor reports here
 				return nil, nil
 			default:
@@ -749,10 +795,10 @@ func Test_queryDataSource_Execute(t *testing.T) {
 
 	my := &datasourceMock.MySQL{
 		QueryFunc: func(_ context.Context, q string, _ processor.TimeRange) (*processor.MySQLQueryResult, error) {
-			switch q {
-			case "boom":
+			switch {
+			case q == "boom", strings.Contains(q, "$"):
 				return nil, assert.AnError
-			case "empty":
+			case q == "empty":
 				//nolint:nilnil // an absent result is what the executor reports here
 				return nil, nil
 			default:
@@ -761,7 +807,57 @@ func Test_queryDataSource_Execute(t *testing.T) {
 		},
 	}
 
+	// a $ left in a query fails it, so these pass only when every
+	// reference was substituted from stubVariableTree.
 	cc := map[string]dataSourceCase{
+		"Prometheus substituted variables": {
+			Type:     datasource.TypePrometheus,
+			Runner:   prometheusRunner(prom(&processor.PrometheusQueryResult{Type: model.ValMatrix, Warnings: []string{"slow"}})),
+			Args:     `{"data_source_id":"` + id + `","query":"up{region=\"$region\",range=\"$metric_range\"}"}`,
+			Contains: `"warnings":["slow"]`,
+		},
+		"PostgreSQL substituted variables": {
+			Type:     datasource.TypePostgreSQL,
+			Runner:   dialectRunner(datasource.TypePostgreSQL, pg, my),
+			Args:     `{"data_source_id":"` + id + `","query":"select '$region'"}`,
+			Contains: `"columns":["time","value"]`,
+		},
+		"MySQL substituted variables": {
+			Type:     datasource.TypeMySQL,
+			Runner:   dialectRunner(datasource.TypeMySQL, pg, my),
+			Args:     `{"data_source_id":"` + id + `","query":"select '$region'"}`,
+			Contains: `"columns":["time","value"]`,
+		},
+		"Variables of the acting organization and user only": {
+			Type: datasource.TypePostgreSQL,
+			Deps: func() *Deps {
+				d := dataSourceDeps(t, datasource.TypePostgreSQL, dialectRunner(datasource.TypePostgreSQL, pg, my))
+				d.variableMan = &VariableManagerMock{
+					FetchTreeFunc: func(_ context.Context, orgID, userID string) (variable.Tree, error) {
+						if orgID != "org" || userID != "user" {
+							return variable.Tree{}, nil
+						}
+
+						return stubVariableTree(), nil
+					},
+				}
+
+				return d
+			}(),
+			Args:     `{"data_source_id":"` + id + `","query":"select '$region'"}`,
+			Contains: `"columns":["time","value"]`,
+		},
+		"Error returned by VariableManager.FetchTree": {
+			Type: datasource.TypePostgreSQL,
+			Deps: func() *Deps {
+				d := dataSourceDeps(t, datasource.TypePostgreSQL, dialectRunner(datasource.TypePostgreSQL, pg, my))
+				d.variableMan = failingTreeManager()
+
+				return d
+			}(),
+			Args: `{"data_source_id":"` + id + `","query":"select '$region'"}`,
+			Err:  assert.AnError,
+		},
 		"Prometheus raw": {
 			Type:     datasource.TypePrometheus,
 			Runner:   prometheusRunner(prom(&processor.PrometheusQueryResult{Type: model.ValMatrix, Warnings: []string{"slow"}})),

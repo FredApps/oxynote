@@ -343,13 +343,18 @@ func (listPrometheusLabels) Execute(inp *input) (string, error) {
 		return "", err
 	}
 
+	matchers, err := inp.SubstituteVariables(in.Matchers...)
+	if err != nil {
+		return "", err
+	}
+
 	prom, err := runner.Prometheus(inp.Context())
 	if err != nil {
 		return "", err
 	}
 
 	if in.Label != "" {
-		res, verr := prom.LabelValues(inp.Context(), in.Label, in.Matchers, tr)
+		res, verr := prom.LabelValues(inp.Context(), in.Label, matchers, tr)
 		if verr != nil {
 			return "", verr
 		}
@@ -357,7 +362,7 @@ func (listPrometheusLabels) Execute(inp *input) (string, error) {
 		return result(res)
 	}
 
-	res, err := prom.LabelNames(inp.Context(), in.Matchers, tr)
+	res, err := prom.LabelNames(inp.Context(), matchers, tr)
 	if err != nil {
 		return "", err
 	}
@@ -442,12 +447,17 @@ func (listPrometheusSeries) Execute(inp *input) (string, error) {
 		return "", err
 	}
 
+	matchers, err := inp.SubstituteVariables(in.Matchers...)
+	if err != nil {
+		return "", err
+	}
+
 	prom, err := runner.Prometheus(inp.Context())
 	if err != nil {
 		return "", err
 	}
 
-	res, err := prom.Series(inp.Context(), in.Matchers, tr)
+	res, err := prom.Series(inp.Context(), matchers, tr)
 	if err != nil {
 		return "", err
 	}
@@ -544,6 +554,13 @@ func (queryDataSource) Execute(inp *input) (string, error) {
 		return "", err
 	}
 
+	qq, err := inp.SubstituteVariables(in.Query)
+	if err != nil {
+		return "", err
+	}
+
+	q := qq[0]
+
 	// each dialect answers in its own shape, so this is the one place a
 	// tool has to know which one it is talking to.
 	switch runner.Type() {
@@ -553,7 +570,7 @@ func (queryDataSource) Execute(inp *input) (string, error) {
 			return "", err
 		}
 
-		res, err := prom.QueryRange(inp.Context(), in.Query, tr)
+		res, err := prom.QueryRange(inp.Context(), q, tr)
 		if err != nil {
 			return "", fmt.Errorf("%w; check the query against get_data_source_metadata", err)
 		}
@@ -572,7 +589,7 @@ func (queryDataSource) Execute(inp *input) (string, error) {
 			return "", err
 		}
 
-		res, err := pg.Query(inp.Context(), in.Query, tr)
+		res, err := pg.Query(inp.Context(), q, tr)
 		if err != nil {
 			return "", fmt.Errorf("%w; check the query against get_data_source_metadata", err)
 		}
@@ -591,7 +608,7 @@ func (queryDataSource) Execute(inp *input) (string, error) {
 			return "", err
 		}
 
-		res, err := my.Query(inp.Context(), in.Query, tr)
+		res, err := my.Query(inp.Context(), q, tr)
 		if err != nil {
 			return "", fmt.Errorf("%w; check the query against get_data_source_metadata", err)
 		}

@@ -6,12 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guregu/null/v5"
 	"github.com/oxynote/oxynote/server/core/internal/assistant/edit"
 	"github.com/oxynote/oxynote/server/core/internal/assistant/markup"
 	datasourceCore "github.com/oxynote/oxynote/server/core/internal/datasource"
 	datasourceMock "github.com/oxynote/oxynote/server/core/internal/datasource/_mock"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/processor"
 	"github.com/oxynote/oxynote/server/core/internal/document"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/oxynote/oxynote/server/core/pkg/timeutil"
 	"github.com/prometheus/common/model"
@@ -167,12 +169,43 @@ func Test_Checker_Check(t *testing.T) {
 		}
 	}
 
+	// answers only the query with $env substituted, so a raw reference
+	// keeps the block simulating.
+	substituted := func() *datasourceMock.Prometheus {
+		return &datasourceMock.Prometheus{
+			QueryRangeFunc: func(_ context.Context, q string, _ processor.TimeRange) (*processor.PrometheusQueryResult, error) {
+				if q != `up{env="prod"}` {
+					return nil, assert.AnError
+				}
+
+				return matrixResult(), nil
+			},
+		}
+	}
+
+	// holds $env only for the block's organization and no user, which
+	// is how the probe fetches the defaults.
+	defaults := func(_ context.Context, organizationID, userID string) (variable.Tree, error) {
+		if organizationID != _organizationID || userID != "" {
+			return variable.Tree{}, nil
+		}
+
+		return variable.Tree{{Variables: []variable.Entry{
+			{Key: "env", Type: variable.TypeText, DefaultValue: null.StringFrom("prod")},
+		}}}, nil
+	}
+
+	referencing := withAttr(document.AttrQueries, []any{
+		map[string]any{"name": "Query 1", "query": `up{env="$env"}`, "legendFormat": ""},
+	})
+
 	cc := map[string]struct {
 		Attrs         document.Attributes
 		Block         *document.Block
 		Prometheus    *datasourceMock.Prometheus
 		Runner        datasourceCore.Runner
 		DataSourceErr bool
+		Variables     func(context.Context, string, string) (variable.Tree, error)
 		ApplyResult   edit.Result
 		ApplyErr      error
 		Calls         int
@@ -190,6 +223,21 @@ func Test_Checker_Check(t *testing.T) {
 			ApplyCalls:    1,
 			QueryCalls:    1,
 			AssertClearOp: true,
+		},
+		"A query is probed with the default values of its variables": {
+			Attrs:      referencing,
+			Prometheus: substituted(),
+			Variables:  defaults,
+			Cleared:    true,
+			ApplyCalls: 1,
+			QueryCalls: 1,
+		},
+		"Error returned by DB.FetchVariableTree": {
+			Attrs:      referencing,
+			Prometheus: substituted(),
+			Variables: func(context.Context, string, string) (variable.Tree, error) {
+				return nil, assert.AnError
+			},
 		},
 		"A scalar answers as well as a range": {
 			Attrs: metricAttrs(),
@@ -453,6 +501,8 @@ func Test_Checker_Check(t *testing.T) {
 			}
 
 			d := newDeps(runner)
+
+			d.db.FetchVariableTreeFunc = c.Variables
 
 			if c.DataSourceErr {
 				d.db.FetchDataSourceFunc = func(context.Context, xid.ID, string) (*datasourceCore.DataSource, error) {

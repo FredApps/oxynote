@@ -220,7 +220,7 @@ func NewServer(
 	srv.handlers.github = github.NewHandler(log, db, githubMan)
 	srv.handlers.slack = slack.NewHandler(log, db, client, slackMan)
 	srv.handlers.notification = notification.NewHandler(log, db, notifier)
-	srv.handlers.datasource = datasource.NewHandler(log, db, datasourceMan)
+	srv.handlers.datasource = datasource.NewHandler(log, db, datasourceMan, variableMan)
 	srv.handlers.block = block.NewHandler(log, blockRunner)
 	srv.handlers.email = email.NewHandler(log, emailSender)
 
