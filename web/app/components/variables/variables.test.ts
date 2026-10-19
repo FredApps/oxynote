@@ -29,7 +29,7 @@ const SCHEMA = new Schema({
 		paragraph: { group: "block", content: "text*" },
 		[METRIC_BLOCK_NAME]: {
 			group: "block",
-			attrs: { queries: { default: [] } },
+			attrs: { queries: { default: [] }, timeRange: { default: null } },
 		},
 		text: {},
 	},
@@ -111,35 +111,35 @@ describe("variables", () => {
 				}),
 			])
 
-			const keys = pageVariableKeys(doc, [])
+			const keys = pageVariableKeys(doc)
 
 			expect([...keys].sort()).toEqual(["env", "job_name", "region"])
 		})
 
-		it("adds the built-in keys on a page with a metric chart", ({ expect }) => {
-			const doc = SCHEMA.node("doc", null, [SCHEMA.node(METRIC_BLOCK_NAME)])
+		it("collects the built-in a metric chart follows", ({ expect }) => {
+			const doc = SCHEMA.node("doc", null, [
+				SCHEMA.node(METRIC_BLOCK_NAME, { timeRange: "$metric_range" }),
+			])
 
-			expect([...pageVariableKeys(doc, makeTree())]).toEqual(["metric_range"])
+			expect([...pageVariableKeys(doc)]).toEqual(["metric_range"])
 		})
 
-		it("leaves the built-in keys out on a page without a metric chart", ({
+		it("leaves the built-ins out for a chart with a fixed setting", ({
 			expect,
 		}) => {
 			const doc = SCHEMA.node("doc", null, [
-				SCHEMA.node("paragraph", null, [SCHEMA.text("Deploys to $env")]),
+				SCHEMA.node(METRIC_BLOCK_NAME, { timeRange: "last_1_hour" }),
 			])
 
-			expect([...pageVariableKeys(doc, makeTree())]).toEqual(["env"])
+			expect(pageVariableKeys(doc).size).toBe(0)
 		})
 
-		it("ignores placeholders that do not start with a letter", ({ expect }) => {
+		it("ignores a dollar sign before a digit", ({ expect }) => {
 			const doc = SCHEMA.node("doc", null, [
-				SCHEMA.node("paragraph", null, [
-					SCHEMA.text("rate(x[$__interval]) costs $5"),
-				]),
+				SCHEMA.node("paragraph", null, [SCHEMA.text("costs $5")]),
 			])
 
-			expect(pageVariableKeys(doc, makeTree()).size).toBe(0)
+			expect(pageVariableKeys(doc).size).toBe(0)
 		})
 	})
 

@@ -51,22 +51,22 @@ describe("<VariableForm>", { concurrent: false }, () => {
 		it.for([
 			{
 				name: "offers an options list for a list",
-				input: () => t("variable.types.list"),
+				input: () => t("general.variable-types.list"),
 				expected: () => t("variable.variable-form.options-hint"),
 			},
 			{
 				name: "offers a number field for a number",
-				input: () => t("variable.types.number"),
+				input: () => t("general.variable-types.number"),
 				expected: () => t("variable.variable-form.default-empty-hint"),
 			},
 			{
 				name: "offers a text area for text",
-				input: () => t("variable.types.text"),
+				input: () => t("general.variable-types.text"),
 				expected: () => t("variable.variable-form.default-empty-hint"),
 			},
 			{
 				name: "offers the time range presets for a time range",
-				input: () => t("variable.types.time-range"),
+				input: () => t("general.variable-types.time-range"),
 				expected: () => t("variable.variable-form.default-preset-hint"),
 			},
 		])("$name", async ({ input, expected }, { expect }) => {
@@ -181,8 +181,8 @@ describe("<VariableForm>", { concurrent: false }, () => {
 		})
 
 		it.for([
-			{ name: "a number", input: () => t("variable.types.number") },
-			{ name: "text", input: () => t("variable.types.text") },
+			{ name: "a number", input: () => t("general.variable-types.number") },
+			{ name: "text", input: () => t("general.variable-types.text") },
 		])(
 			"asks for a default before it creates $name",
 			async ({ input }, { expect }) => {
@@ -257,7 +257,9 @@ describe("<VariableForm>", { concurrent: false }, () => {
 			const calls = mockEndpoint("POST", VARIABLES_URL, () => ({}))
 			const wrapper = await mountNew()
 
-			await typeButton(wrapper, t("variable.types.number")).trigger("click")
+			await typeButton(wrapper, t("general.variable-types.number")).trigger(
+				"click",
+			)
 			await field(wrapper, t("variable.variable-form.name-label")).setValue(
 				"Hotfix threshold",
 			)
@@ -286,7 +288,9 @@ describe("<VariableForm>", { concurrent: false }, () => {
 			const calls = mockEndpoint("POST", VARIABLES_URL, () => ({}))
 			const wrapper = await mountNew()
 
-			await typeButton(wrapper, t("variable.types.time-range")).trigger("click")
+			await typeButton(wrapper, t("general.variable-types.time-range")).trigger(
+				"click",
+			)
 			await field(wrapper, t("variable.variable-form.name-label")).setValue(
 				"Incident window",
 			)
@@ -598,10 +602,10 @@ function defaultFieldShape(wrapper: VueWrapper) {
 
 function defaultShapeFor(type: string) {
 	return {
-		options: type === t("variable.types.list"),
-		timeRange: type === t("variable.types.time-range"),
-		textArea: type === t("variable.types.text"),
-		number: type === t("variable.types.number"),
+		options: type === t("general.variable-types.list"),
+		timeRange: type === t("general.variable-types.time-range"),
+		textArea: type === t("general.variable-types.text"),
+		number: type === t("general.variable-types.number"),
 	}
 }
 

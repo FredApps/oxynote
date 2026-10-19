@@ -41,6 +41,7 @@ const { osType } = useDetectHost()
 const { fetchDocumentTree, updateDocumentTree } = useDocumentAPI()
 const { fetchTagTree, updateTagTree, updateTagVisibility, unassignBranchTag } =
 	useTagAPI()
+const { fetchVariables } = useVariableAPI()
 const { fetchOrganization, safeSignOut } = useAuthSession()
 const { fetchGitHubConnectionStatus, gitHubConfigured, fetchGitHubInstallURL } =
 	useGitHubAPI()
@@ -53,6 +54,7 @@ const { openExternalLink } = useExternalLinks()
 const wsState = useWebSocketStateStore()
 let unsubWsTreeChange: (() => void) | null | undefined = null
 let unsubWsTagTreeChange: (() => void) | null | undefined = null
+let unsubWsVariablesChange: (() => void) | null | undefined = null
 let initialLoadComplete = false
 
 const { toggleSidebar } = useSidebar()
@@ -303,10 +305,18 @@ onMounted(() => {
 			void fetchTagTree.refetch()
 		},
 	)
+	// the charts on every page read the variables, not only their panel
+	unsubWsVariablesChange = wsState.state?.subscribe(
+		WS_VARIABLES_CHANGE_TOPIC,
+		() => {
+			void fetchVariables.refetch()
+		},
+	)
 })
 onUnmounted(() => {
 	unsubWsTreeChange?.()
 	unsubWsTagTreeChange?.()
+	unsubWsVariablesChange?.()
 })
 
 if (import.meta.client) {

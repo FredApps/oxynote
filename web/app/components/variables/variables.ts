@@ -6,8 +6,8 @@ import type {
 	VariableTreeResponse,
 } from "~/utils"
 import { RefreshInterval, TimeRangePreset } from "~/utils/time-range"
+import { KEY_PATTERN, referencedWords } from "~/utils/variable"
 import type { SidebarItem } from "../sidebar"
-import { METRIC_BLOCK_NAME } from "../editor/blocks/node-names"
 
 export const DEFAULT_TIME_RANGE = TimeRangePreset.Last24Hours
 
@@ -33,9 +33,6 @@ export const VARIABLE_DRAG_GROUPS = {
 	builtinGroup: "variable-builtin-group",
 	builtinVariable: "variable-builtin",
 } as const
-
-const KEY_PATTERN = /^[a-z][a-z0-9_]*$/
-const REFERENCE_PATTERN = /\$([a-z][a-z0-9_]*)/g
 
 export interface VariableSection {
 	id: "on-this-page" | "other" | "all"
@@ -106,30 +103,16 @@ export function keyProblem(
 	return taken ? "taken" : null
 }
 
-// pageVariableKeys collects every key the page references as $key, in
-// text or in any block attribute such as a metric query. Every metric
-// chart reads the built-in variables, so a page with one uses their keys
-// too.
-export function pageVariableKeys(
-	doc: PMNode,
-	tree: VariableTreeResponse,
-): Set<string> {
+// pageVariableKeys collects every word the page references as $word, in
+// text or in any block attribute, such as a metric query or a chart that
+// follows a built-in variable
+export function pageVariableKeys(doc: PMNode): Set<string> {
 	const keys = new Set<string>()
-	const builtinKeys = tree.flatMap((group) =>
-		group.variables.filter((v) => v.builtin).map((v) => v.key),
-	)
 
 	doc.descendants((node) => {
-		if (node.type.name === METRIC_BLOCK_NAME) {
-			builtinKeys.forEach((key) => keys.add(key))
-		}
-
 		const source = node.isText ? (node.text ?? "") : JSON.stringify(node.attrs)
-		for (const match of source.matchAll(REFERENCE_PATTERN)) {
-			if (match[1]) {
-				keys.add(match[1])
-			}
-		}
+
+		referencedWords(source).forEach((word) => keys.add(word))
 	})
 
 	return keys

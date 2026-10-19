@@ -15,6 +15,10 @@ import {
 } from "date-fns"
 import { chartStyles } from "~/assets/css"
 import { RefreshInterval, TimeRangePreset } from "~/utils/time-range"
+import type {
+	METRIC_REFRESH_INTERVAL_REFERENCE,
+	METRIC_TIME_RANGE_REFERENCE,
+} from "~/utils/variable"
 
 export const CONFIG_DEBOUNCE_MS = 500
 export const NODE_ATTR_UPDATE_REFRESH_DISABLE_MS = CONFIG_DEBOUNCE_MS + 1000 // slightly longer than config debounce to avoid content refreshes on drag-drop
@@ -24,6 +28,12 @@ export enum MetricBlockWidth {
 	Standard = "standard",
 	Wide = "wide",
 }
+
+// a chart either takes a fixed setting or follows the built-in variable
+export type MetricTimeRange =
+	TimeRangePreset | typeof METRIC_TIME_RANGE_REFERENCE
+export type MetricRefreshInterval =
+	RefreshInterval | typeof METRIC_REFRESH_INTERVAL_REFERENCE
 
 export const VISUALIZATION_MAX_DECIMALS = 16
 export const VISUALIZATION_MAX_CUSTOM_UNIT_LENGTH = 8
@@ -88,8 +98,8 @@ export interface MetricConfig {
 				legendFormat: string
 		  }[]
 		| null
-	timeRange: TimeRangePreset | null
-	refreshInterval: RefreshInterval | null
+	timeRange: MetricTimeRange | null
+	refreshInterval: MetricRefreshInterval | null
 	thresholds?:
 		| {
 				value?: number // undefined means that the threshold is disabled
@@ -188,9 +198,10 @@ export function buildConfigFromNodeAttrs(
 			(attrs.visualizationType as GenericQueryChartType | null | undefined) ??
 			GenericQueryChartType.Line,
 		queries: (attrs.queries as MetricConfig["queries"] | undefined) ?? null,
-		timeRange: (attrs.timeRange as TimeRangePreset | null | undefined) ?? null,
+		timeRange: (attrs.timeRange as MetricTimeRange | null | undefined) ?? null,
 		refreshInterval:
-			(attrs.refreshInterval as RefreshInterval | null | undefined) ?? null,
+			(attrs.refreshInterval as MetricRefreshInterval | null | undefined) ??
+			null,
 		thresholds: (attrs.thresholds as MetricConfig["thresholds"]) ?? null,
 		baseThresholdColor: (attrs.baseThresholdColor as string | undefined) ?? "",
 		decimals: (attrs.decimals as number | null | undefined) ?? null,

@@ -3,6 +3,8 @@ import type { VariableTreeElement } from "~/utils"
 import { showToastMessage } from "../toast"
 import { NO_AUTOFILL, isCustomValue, optionLabel } from "./variables"
 
+const SAVE_DEBOUNCE_MS = 500
+
 const props = defineProps<{
 	variable: VariableTreeElement
 }>()
@@ -35,6 +37,18 @@ watchImmediate(
 	},
 )
 
+// a typed number or text saves once the user pauses. Blur and enter save
+// at once and drop the pending save.
+const { start: saveDraftSoon, stop: cancelDraftSave } = useTimeoutFn(
+	saveDraft,
+	SAVE_DEBOUNCE_MS,
+	{ immediate: false },
+)
+
+watch([textDraft, numberDraft], () => {
+	saveDraftSoon()
+})
+
 async function saveValue(value: string | undefined) {
 	const current = props.variable.value ?? undefined
 	if (value === current) {
@@ -64,11 +78,21 @@ async function resetValue() {
 	}
 }
 
+function saveDraft() {
+	if (props.variable.type === "number") {
+		saveNumber()
+	} else if (props.variable.type === "text") {
+		saveText()
+	}
+}
+
 function saveText() {
+	cancelDraftSave()
 	void saveValue(textDraft.value || undefined)
 }
 
 function saveNumber() {
+	cancelDraftSave()
 	void saveValue(
 		numberDraft.value === undefined ? undefined : String(numberDraft.value),
 	)

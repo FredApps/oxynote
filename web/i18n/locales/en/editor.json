@@ -750,6 +750,7 @@
 						"range": "Duration of the selected time range",
 						"rate-interval": "Safe interval for rate() and increase(), adjusts to scrape frequency"
 					},
+					"variable": "Current value: {value}. You can change it in the variables sidebar.",
 					"sql": {
 						"from": "Start of the selected time range in unix milliseconds",
 						"to": "End of the selected time range in unix milliseconds",
@@ -823,7 +824,9 @@
 				"legend-format-placeholder": "{'{{'}some label{'}}'} {'{{'}another label{'}}'}",
 				"legend-format-empty-value-placeholder": "[empty]",
 				"time-range-label": "Time Range",
-				"refresh-interval-label": "Refresh Interval"
+				"refresh-interval-label": "Refresh Interval",
+				"variable-time-range": "Global time",
+				"variable-refresh-interval": "Global refresh"
 			},
 			"diff": {
 				"visualization": "Visualization",

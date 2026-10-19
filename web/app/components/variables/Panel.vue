@@ -19,8 +19,6 @@ const editing = defineModel<boolean>("editing", { default: false })
 
 const { t } = useI18n({ useScope: "global" })
 const { fetchVariables, deleteVariable, deleteVariableGroup } = useVariableAPI()
-const wsState = useWebSocketStateStore()
-let unsubWsVariablesChange: (() => void) | null | undefined = null
 
 const view = ref<View>({ kind: "list" })
 // normal mode puts the variables this page uses first, in their own section
@@ -37,17 +35,6 @@ const failed = computed(
 
 onBeforeMount(() => {
 	void fetchVariables.refresh()
-})
-onMounted(() => {
-	unsubWsVariablesChange = wsState.state?.subscribe(
-		WS_VARIABLES_CHANGE_TOPIC,
-		() => {
-			void fetchVariables.refetch()
-		},
-	)
-})
-onUnmounted(() => {
-	unsubWsVariablesChange?.()
 })
 
 function startEditing() {

@@ -110,6 +110,34 @@ describe("usePrometheusDataSourceAPI", { concurrent: false }, () => {
 				matchers: ["up", "node_load1"],
 			})
 		})
+		it("asks again for other variable values", async ({ expect }) => {
+			const calls = mockEndpoint(
+				"GET",
+				"/api/data-sources/ds1/prometheus/labels",
+				() => ({ result: [] }),
+			)
+			const params = ref({
+				matchers: ['up{env="$env"}'],
+				...TIME_RANGE,
+				variableValues: { env: "prod" },
+			})
+			const api = makePrometheusDataSourceAPI()
+			const lookup = runInApp(() =>
+				api.usePrometheusLabels("ds1", params, true),
+			)
+			await lookup.refresh()
+
+			params.value = { ...params.value, variableValues: { env: "dev" } }
+			await lookup.refresh()
+
+			// a fresh answer per value, and the values never leave the client
+			expect(calls).toHaveLength(2)
+			expect(calls[1]?.query).toEqual({
+				from: FROM,
+				to: TO,
+				matchers: 'up{env="$env"}',
+			})
+		})
 	})
 
 	describe("usePrometheusLabelValues", () => {
@@ -180,6 +208,35 @@ describe("usePrometheusDataSourceAPI", { concurrent: false }, () => {
 				matchers: ["up", "node_load1"],
 			})
 		})
+		it("asks again for other variable values", async ({ expect }) => {
+			const calls = mockEndpoint(
+				"GET",
+				"/api/data-sources/ds1/prometheus/labels/job/values",
+				() => ({ result: [] }),
+			)
+			const params = ref({
+				label: "job",
+				matchers: ['up{env="$env"}'],
+				...TIME_RANGE,
+				variableValues: { env: "prod" },
+			})
+			const api = makePrometheusDataSourceAPI()
+			const lookup = runInApp(() =>
+				api.usePrometheusLabelValues("ds1", params, true),
+			)
+			await lookup.refresh()
+
+			params.value = { ...params.value, variableValues: { env: "dev" } }
+			await lookup.refresh()
+
+			// a fresh answer per value, and the values never leave the client
+			expect(calls).toHaveLength(2)
+			expect(calls[1]?.query).toEqual({
+				from: FROM,
+				to: TO,
+				matchers: 'up{env="$env"}',
+			})
+		})
 	})
 
 	describe("usePrometheusSeries", () => {
@@ -227,6 +284,34 @@ describe("usePrometheusDataSourceAPI", { concurrent: false }, () => {
 				from: FROM,
 				to: TO,
 				matchers: ["up", "node_load1"],
+			})
+		})
+		it("asks again for other variable values", async ({ expect }) => {
+			const calls = mockEndpoint(
+				"GET",
+				"/api/data-sources/ds1/prometheus/series",
+				() => ({ result: [] }),
+			)
+			const params = ref({
+				matchers: ['up{env="$env"}'],
+				...TIME_RANGE,
+				variableValues: { env: "prod" },
+			})
+			const api = makePrometheusDataSourceAPI()
+			const lookup = runInApp(() =>
+				api.usePrometheusSeries("ds1", params, true),
+			)
+			await lookup.refresh()
+
+			params.value = { ...params.value, variableValues: { env: "dev" } }
+			await lookup.refresh()
+
+			// a fresh answer per value, and the values never leave the client
+			expect(calls).toHaveLength(2)
+			expect(calls[1]?.query).toEqual({
+				from: FROM,
+				to: TO,
+				matchers: 'up{env="$env"}',
 			})
 		})
 	})

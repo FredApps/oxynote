@@ -51,7 +51,6 @@ describe("<Panel>", { concurrent: false }, () => {
 	afterEach(() => {
 		vi.useRealTimers()
 		disposeMockEndpoints()
-		useWebSocketStateStore().state = null
 	})
 
 	describe("modes", () => {
@@ -405,39 +404,6 @@ describe("<Panel>", { concurrent: false }, () => {
 		await settleMutations()
 
 		expect(wrapper.text()).toContain(t("variable.errors.load-failed"))
-	})
-
-	describe("websocket updates", () => {
-		it("refetches the variables when they change elsewhere", async ({
-			expect,
-		}) => {
-			const subscribe = vi.fn().mockReturnValue(vi.fn())
-			useWebSocketStateStore().state = { subscribe } as never
-			const calls = mockTree(fullTree())
-			await mountPanel()
-			await settleMutations()
-			const before = calls.length
-
-			const [topic, handler] = subscribe.mock.calls[0] as [string, () => void]
-			handler()
-			await settleMutations()
-
-			expect(topic).toBe(WS_VARIABLES_CHANGE_TOPIC)
-			expect(calls.length).toBe(before + 1)
-		})
-
-		it("unsubscribes when it goes away", async ({ expect }) => {
-			const unsubscribe = vi.fn()
-			useWebSocketStateStore().state = {
-				subscribe: vi.fn().mockReturnValue(unsubscribe),
-			} as never
-			mockTree(fullTree())
-			const wrapper = await mountPanel()
-
-			wrapper.unmount()
-
-			expect(unsubscribe).toHaveBeenCalledTimes(1)
-		})
 	})
 })
 

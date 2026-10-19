@@ -1,4 +1,4 @@
-import { enableAutoUnmount } from "@vue/test-utils"
+import { enableAutoUnmount, flushPromises } from "@vue/test-utils"
 import { afterEach, beforeEach, describe, it, vi } from "vitest"
 import BaseModal from "./BaseModal.client.vue"
 import ConfigSidebar from "./ConfigSidebar.vue"
@@ -16,6 +16,10 @@ import {
 	makeXid,
 	mockEndpoint,
 } from "~/composables/api/test-helpers"
+import {
+	METRIC_REFRESH_INTERVAL_REFERENCE,
+	METRIC_TIME_RANGE_REFERENCE,
+} from "~/utils/variable"
 import {
 	emitFrom,
 	mountUnderTooltipProvider,
@@ -179,6 +183,92 @@ describe("<MetricConfigBaseModal>", { concurrent: false }, () => {
 		expect(dialogText()).toContain(
 			t("general.refresh-interval-options-short.30s"),
 		)
+	})
+
+	it("names the built-in variables the block uses", async ({ expect }) => {
+		activateBlock({
+			config: {
+				...defaultMetricConfig(),
+				timeRange: METRIC_TIME_RANGE_REFERENCE,
+				refreshInterval: METRIC_REFRESH_INTERVAL_REFERENCE,
+			},
+		})
+
+		await mountModal()
+
+		const timeRange = t("editor.metrics.config.variable-time-range")
+		const refreshInterval = t("editor.metrics.config.variable-refresh-interval")
+
+		// each button names the shared setting, not what it resolves to
+		expect(teleportedButton(timeRange).textContent.trim()).toBe(timeRange)
+		expect(teleportedButton(refreshInterval).textContent.trim()).toBe(
+			refreshInterval,
+		)
+	})
+
+	it.for([
+		{
+			name: "offers the global time first",
+			trigger: () => t("general.time-range-options.last_24_hours"),
+			label: () => t("editor.metrics.config.variable-time-range"),
+		},
+		{
+			name: "offers the global refresh first",
+			trigger: () => t("general.refresh-interval-options-short.30s"),
+			label: () => t("editor.metrics.config.variable-refresh-interval"),
+		},
+	])("$name", async ({ trigger, label }, { expect }) => {
+		activateBlock({
+			config: {
+				...defaultMetricConfig(),
+				timeRange: TimeRangePreset.Last24Hours,
+				refreshInterval: RefreshInterval.S30,
+			},
+		})
+		await mountModal()
+
+		teleportedButton(trigger()).dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+		)
+		await nextTick()
+
+		const options = Array.from(
+			document.body.querySelectorAll("[role='option']"),
+		).map((o) => o.textContent.trim())
+
+		expect(options[0]).toBe(label())
+	})
+
+	it("stores the reference once the global time is picked", async ({
+		expect,
+	}) => {
+		const uid = activateBlock({
+			config: {
+				...defaultMetricConfig(),
+				timeRange: TimeRangePreset.Last24Hours,
+			},
+		})
+		await mountModal()
+		teleportedButton(
+			t("general.time-range-options.last_24_hours"),
+		).dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+		)
+		await nextTick()
+
+		document.body
+			.querySelector("[role='option']")
+			?.dispatchEvent(
+				new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+			)
+		// the item selects only after two ticks of its own
+		await flushPromises()
+
+		const store = useEditorStore()
+
+		expect(
+			store.metricBlockConfigs[DOCUMENT_ID]?.[BRANCH_ID]?.[uid]?.timeRange,
+		).toBe(METRIC_TIME_RANGE_REFERENCE)
 	})
 
 	it("shows the time range a diff replaced beside the new one", async ({

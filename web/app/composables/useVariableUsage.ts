@@ -20,7 +20,7 @@ export function useVariableUsage(editor: MaybeRefOrGetter<Editor | null>) {
 		const tree = fetchVariables.data.value ?? []
 
 		return doc.value
-			? usedIds(tree, pageVariableKeys(doc.value, tree))
+			? usedIds(tree, pageVariableKeys(doc.value))
 			: new Set<string>()
 	})
 	const totalCount = computed(() =>

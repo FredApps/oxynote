@@ -59,7 +59,8 @@ function treeElement() {
 }
 
 // AppSidebar refreshes the tree, the organization and the unread count on
-// mount, so every one of them needs an endpoint behind it
+// mount and loads the variables, so every one of them needs an endpoint
+// behind it
 function stubQueries(
 	options: {
 		tree?: unknown[]
@@ -71,6 +72,7 @@ function stubQueries(
 ) {
 	mockEndpoint("GET", "/api/documents/tree", () => options.tree ?? [])
 	mockEndpoint("GET", "/api/tags/tree", () => options.tags ?? [])
+	const variableCalls = mockEndpoint("GET", "/api/variables/tree", () => [])
 	mockEndpoint("GET", "/api/notifications/count", () => ({
 		count: options.unread ?? 0,
 	}))
@@ -82,6 +84,8 @@ function stubQueries(
 		["slack", "connected"],
 		options.slack ?? { connected: true, configured: true },
 	)
+
+	return { variableCalls }
 }
 
 function mountSidebar(props: Record<string, unknown> = {}) {
@@ -1061,6 +1065,52 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 			await nextTick()
 
 			expect(sidebar(wrapper).emitted("create-document")).toEqual([[DOC_ID]])
+		})
+	})
+
+	describe("websocket updates", { concurrent: false }, () => {
+		afterEach(() => {
+			useWebSocketStateStore().state = null
+		})
+
+		it("refetches the variables when they change elsewhere", async ({
+			expect,
+		}) => {
+			const subscribe = vi.fn().mockReturnValue(vi.fn())
+			useWebSocketStateStore().state = { subscribe } as never
+			const { variableCalls } = stubQueries()
+			await mountSidebar()
+			await settleMutations()
+			const before = variableCalls.length
+
+			const [, handler] = at(
+				subscribe.mock.calls.filter(
+					([topic]) => topic === WS_VARIABLES_CHANGE_TOPIC,
+				),
+				0,
+			) as [string, () => void]
+			handler()
+			await settleMutations()
+
+			expect(variableCalls.length).toBe(before + 1)
+		})
+
+		it("stops listening for variable changes when it goes away", async ({
+			expect,
+		}) => {
+			const unsubscribe = vi.fn()
+			const subscribe = vi.fn().mockReturnValue(unsubscribe)
+			useWebSocketStateStore().state = { subscribe } as never
+			stubQueries()
+			const wrapper = await mountSidebar()
+
+			wrapper.unmount()
+
+			// one unsubscribe per topic: documents, tags and variables
+			expect(subscribe.mock.calls.map(([topic]) => topic as string)).toContain(
+				WS_VARIABLES_CHANGE_TOPIC,
+			)
+			expect(unsubscribe).toHaveBeenCalledTimes(subscribe.mock.calls.length)
 		})
 	})
 

@@ -32,6 +32,12 @@
 			"hours": "{count}h",
 			"days": "{count}d"
 		},
+		"variable-types": {
+			"list": "List",
+			"number": "Number",
+			"text": "Text",
+			"time-range": "Time range"
+		},
 		"time-range-options": {
 			"last_5_minutes": "Last 5 minutes",
 			"last_15_minutes": "Last 15 minutes",

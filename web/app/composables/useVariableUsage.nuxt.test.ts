@@ -6,7 +6,6 @@ import { METRIC_BLOCK_NAME } from "~/components/editor/blocks/node-names"
 import {
 	VAR_ENV,
 	VAR_RANGE,
-	VAR_REFRESH,
 	VAR_REGION,
 	fullTree,
 	mockTree,
@@ -24,7 +23,7 @@ const SCHEMA = new Schema({
 		paragraph: { group: "block", content: "text*" },
 		[METRIC_BLOCK_NAME]: {
 			group: "block",
-			attrs: { queries: { default: [] } },
+			attrs: { timeRange: { default: null } },
 		},
 		text: {},
 	},
@@ -55,12 +54,12 @@ describe("useVariableUsage", { concurrent: false }, () => {
 		expect(usage.totalCount.value).toBe(4)
 	})
 
-	it("counts the built-ins as used on a page with a metric chart", ({
+	it("counts a built-in as used by a metric chart that follows it", ({
 		expect,
 	}) => {
 		const usage = follow(ref(fakeEditor(page(null, true))))
 
-		expect([...usage.usedVariableIds.value]).toEqual([VAR_RANGE, VAR_REFRESH])
+		expect([...usage.usedVariableIds.value]).toEqual([VAR_RANGE])
 	})
 
 	it("follows the page's edits once they settle", async ({ expect }) => {
@@ -126,7 +125,9 @@ function follow(editor: Ref<FakeEditor | null>) {
 function page(text: string | null, metricChart = false): PMNode {
 	return SCHEMA.node("doc", null, [
 		SCHEMA.node("paragraph", null, text ? [SCHEMA.text(text)] : []),
-		...(metricChart ? [SCHEMA.node(METRIC_BLOCK_NAME)] : []),
+		...(metricChart
+			? [SCHEMA.node(METRIC_BLOCK_NAME, { timeRange: "$metric_range" })]
+			: []),
 	])
 }
 

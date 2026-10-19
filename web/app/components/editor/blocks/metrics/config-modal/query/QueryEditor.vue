@@ -20,6 +20,7 @@ import {
 import type { TimeRangePreset } from "~/utils/time-range"
 import { indentWithTab } from "@codemirror/commands"
 import { DiffStatus } from "~/components/editor/diff/position-map"
+import { useMetricVariables } from "../../variables"
 
 const props = defineProps<{
 	diffStatus?: DiffStatus | null
@@ -36,6 +37,7 @@ const { isDark } = useAppearance()
 const { isEditable } = useEditorMeta()
 const editorStore = useEditorStore()
 const { t } = useI18n({ useScope: "global" })
+const { variables } = useMetricVariables()
 
 const isEditingDisabled = computed(
 	() => !isEditable.value || editorStore.reviewableDiffActive,
@@ -45,6 +47,7 @@ const queryExtension = useQueryEditorExtension(
 	() => props.dataSourceId,
 	() => props.timeRange,
 	() => !isEditingDisabled.value,
+	variables,
 )
 
 const extensions = computed(() => {

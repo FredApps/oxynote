@@ -8,6 +8,7 @@ export interface GenericQueryTimeRange {
 	from: Date | string
 	to: Date | string
 	timeRangeKey: string // key representing a preset time range (for caching; local)
+	variableValues?: Record<string, string> // values of the variables the request references (for caching; local)
 }
 
 export interface GenericQueryParams extends GenericQueryTimeRange {

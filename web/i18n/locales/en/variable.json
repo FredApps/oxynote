@@ -36,7 +36,7 @@
 		"builtin": {
 			"tag": "Built-in",
 			"tag-hint": "These variables are always present and available on every page",
-			"form-notice": "Every metric chart reads this built-in variable. Name, key, group and type can't change, but the default value can."
+			"form-notice": "Metric charts can follow this built-in variable instead of a fixed setting. Name, key, group and type can't change, but the default value can."
 		},
 		"empty": {
 			"builtin-only-title": "No variables of your own yet",
@@ -45,12 +45,6 @@
 			"no-groups-title": "No groups of your own yet",
 			"no-groups-description": "Groups keep related variables together under one color.",
 			"group": "No variables yet"
-		},
-		"types": {
-			"list": "List",
-			"number": "Number",
-			"text": "Text",
-			"time-range": "Time range"
 		},
 		"variable-form": {
 			"new-title": "New variable",

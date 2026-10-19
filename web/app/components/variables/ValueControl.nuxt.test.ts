@@ -142,6 +142,40 @@ describe("<ValueControl>", { concurrent: false }, () => {
 			expect.soft(calls.map((call) => call.body)).toEqual([{ value: "3.5" }])
 		})
 
+		it("saves the number once the user pauses typing", async ({ expect }) => {
+			const variable = numberVariable({ value: null })
+			mockTree(treeHolding(variable))
+			const calls = mockEndpoint("PUT", VALUE_URL(variable.id), () => null)
+			const wrapper = await mountControl(variable)
+
+			await wrapper.get("input").setValue("3")
+			await wrapper.get("input").setValue("35")
+
+			expect.soft(calls).toHaveLength(0)
+
+			await vi.waitFor(() => {
+				expect(calls).toHaveLength(1)
+			})
+
+			expect.soft(calls.map((call) => call.body)).toEqual([{ value: "35" }])
+		})
+
+		it("drops the pending save once the field loses focus", async ({
+			expect,
+		}) => {
+			const variable = numberVariable({ value: null })
+			mockTree(treeHolding(variable))
+			const calls = mockEndpoint("PUT", VALUE_URL(variable.id), () => null)
+			const wrapper = await mountControl(variable)
+
+			await wrapper.get("input").setValue("4")
+			await wrapper.get("input").trigger("blur")
+			await new Promise((resolve) => setTimeout(resolve, 600))
+			await settleMutations()
+
+			expect.soft(calls.map((call) => call.body)).toEqual([{ value: "4" }])
+		})
+
 		it("falls back to the default once the field is cleared", async ({
 			expect,
 		}) => {
@@ -198,6 +232,25 @@ describe("<ValueControl>", { concurrent: false }, () => {
 			expect
 				.soft(calls.map((call) => call.body))
 				.toEqual([{ value: "relay-2.15.0" }])
+		})
+
+		it("saves the text once the user pauses typing", async ({ expect }) => {
+			const variable = textVariable()
+			mockTree(treeHolding(variable))
+			const calls = mockEndpoint("PUT", VALUE_URL(variable.id), () => null)
+			const wrapper = await mountControl(variable)
+
+			await wrapper.get("textarea").setValue("relay-2.16.0")
+
+			expect.soft(calls).toHaveLength(0)
+
+			await vi.waitFor(() => {
+				expect(calls).toHaveLength(1)
+			})
+
+			expect
+				.soft(calls.map((call) => call.body))
+				.toEqual([{ value: "relay-2.16.0" }])
 		})
 	})
 

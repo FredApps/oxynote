@@ -151,22 +151,22 @@ const typeOptions = computed<
 >(() => [
 	{
 		type: "list",
-		label: t("variable.types.list"),
+		label: t("general.variable-types.list"),
 		icon: "mingcute:list-check-line",
 	},
 	{
 		type: "number",
-		label: t("variable.types.number"),
+		label: t("general.variable-types.number"),
 		icon: "mingcute:hashtag-line",
 	},
 	{
 		type: "text",
-		label: t("variable.types.text"),
+		label: t("general.variable-types.text"),
 		icon: "mingcute:text-line",
 	},
 	{
 		type: "time-range",
-		label: t("variable.types.time-range"),
+		label: t("general.variable-types.time-range"),
 		icon: "mingcute:time-line",
 	},
 ])
