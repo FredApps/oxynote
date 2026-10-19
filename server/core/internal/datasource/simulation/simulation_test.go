@@ -303,6 +303,26 @@ func Test_Checker_Check(t *testing.T) {
 			QueryCalls: 1,
 			ProbeSpan:  24 * time.Hour,
 		},
+		"A window following the built-in variable is probed over its default": {
+			Attrs:      withAttr(document.AttrTimeRange, "$metric_range"),
+			Prometheus: sampled(),
+			Variables: func(context.Context, string, string) (variable.Tree, error) {
+				return variable.Tree{{Variables: []variable.Entry{
+					{Key: "metric_range", Type: variable.TypeTimeRange, DefaultValue: null.StringFrom("last_7_days")},
+				}}}, nil
+			},
+			Cleared:    true,
+			ApplyCalls: 1,
+			QueryCalls: 1,
+			ProbeSpan:  7 * 24 * time.Hour,
+		},
+		"Error returned by DB.FetchVariableTree for the window": {
+			Attrs:      withAttr(document.AttrTimeRange, "$metric_range"),
+			Prometheus: sampled(),
+			Variables: func(context.Context, string, string) (variable.Tree, error) {
+				return nil, assert.AnError
+			},
+		},
 		"A window this build does not know is probed over a day": {
 			Attrs:      withAttr(document.AttrTimeRange, "since_forever"),
 			Prometheus: sampled(),
@@ -600,12 +620,12 @@ func Test_probeSpan(t *testing.T) {
 	assert.Equal(
 		t,
 		_defaultProbeSpan,
-		probeSpan(metricBlock(withoutAttr(document.AttrTimeRange))),
+		probeSpan(""),
 	)
 	assert.Equal(
 		t,
 		5*time.Minute,
-		probeSpan(metricBlock(withAttr(document.AttrTimeRange, "last_5_minutes"))),
+		probeSpan("last_5_minutes"),
 	)
 }
 

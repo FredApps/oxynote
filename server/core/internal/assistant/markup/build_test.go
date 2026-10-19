@@ -151,6 +151,19 @@ func Test_Build(t *testing.T) {
 				assert.Equal(t, "wide", got[0].Attrs[document.AttrWidth])
 			},
 		},
+		"Metric re-sent without its window keeps it": {
+			Markup: edit("mb1", `"timeRange":"last_1_hour",`, ""),
+			Stored: root,
+			Check: func(t *testing.T, got []document.Block) {
+				t.Helper()
+				assert.Equal(t, "last_1_hour", got[0].Attrs[document.AttrTimeRange])
+				assert.Equal(t, "1m", got[0].Attrs[document.AttrRefreshInterval])
+			},
+		},
+		"New metric follows the built-in variables": {
+			Markup: `<metric>{}</metric>`,
+			Result: "<metric>{\"refreshInterval\":\"$metric_refresh\",\"timeRange\":\"$metric_range\"}</metric>\n",
+		},
 		"Metric drops a simulation flag the markup sent": {
 			Markup: `<metric>{"simulationActive":true,"uid":"x","nodeCommentId":"c"}</metric>`,
 			Check: func(t *testing.T, got []document.Block) {

@@ -209,21 +209,23 @@ func (c *Checker) checkMetricActive(
 	}
 
 	queries := extractQueries(block)
+	timeRange := block.Attrs.Get(document.AttrTimeRange).String()
 
 	// the probe acts for no user, so every variable takes its default.
-	if variable.HasReference(queries...) {
+	if variable.HasReference(queries...) || variable.HasReference(timeRange) {
 		vars, verr := c.db.FetchVariableTree(ctx, organizationID, "")
 		if verr != nil {
-			c.log.DebugContext(ctx, "cannot fetch the variables the block's queries reference", "error", verr)
+			c.log.DebugContext(ctx, "cannot fetch the variables the block references", "error", verr)
 
 			return false
 		}
 
 		queries = vars.Substitute(queries...)
+		timeRange = vars.Substitute(timeRange)[0]
 	}
 
 	now := timeutil.Now()
-	tr := processor.TimeRange{From: now.Add(-probeSpan(block)), To: now}
+	tr := processor.TimeRange{From: now.Add(-probeSpan(timeRange)), To: now}
 
 	// the probe transforms as a gauge because that shape accepts every
 	// result a source can answer with, scalar, vector and matrix alike,
@@ -324,18 +326,8 @@ func simulated(block document.Block) bool {
 	return block.Attrs.Get(document.AttrSimulationActive).Bool()
 }
 
-// probeSpan reads how far back the block's window reaches.
-func probeSpan(block document.Block) time.Duration {
-	raw, ok := block.Attrs.Value(document.AttrTimeRange)
-	if !ok {
-		return _defaultProbeSpan
-	}
-
-	preset, isString := raw.(string)
-	if !isString {
-		return _defaultProbeSpan
-	}
-
+// probeSpan returns how far back the time range preset reaches.
+func probeSpan(preset string) time.Duration {
 	span, known := _probeSpans[preset]
 	if !known {
 		return _defaultProbeSpan

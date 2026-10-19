@@ -459,6 +459,7 @@ func Test_InitialDocumentContent(t *testing.T) {
 	// data source, and every uid is regenerated (21 chars).
 	var (
 		dataSourceAttrs int
+		metrics         int
 		checkBlock      func(b Block)
 	)
 
@@ -473,6 +474,14 @@ func Test_InitialDocumentContent(t *testing.T) {
 			assert.Len(t, uid, 21)
 		}
 
+		// every chart follows the built-in metric variables.
+		if b.Type == BlockNodeMetricBlock {
+			metrics++
+
+			assert.Equal(t, "$metric_range", b.Attrs[AttrTimeRange])
+			assert.Equal(t, "$metric_refresh", b.Attrs[AttrRefreshInterval])
+		}
+
 		for _, cb := range b.Content {
 			checkBlock(cb)
 		}
@@ -483,6 +492,7 @@ func Test_InitialDocumentContent(t *testing.T) {
 	}
 
 	assert.NotZero(t, dataSourceAttrs, "the seeded content should reference the data source")
+	assert.NotZero(t, metrics)
 
 	// without a data source the charts have nothing to read, so they are
 	// dropped instead of pointing at an id that was never stored.

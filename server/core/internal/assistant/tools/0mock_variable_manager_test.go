@@ -36,6 +36,9 @@ var _ VariableManager = &VariableManagerMock{}
 //			FetchTreeFunc: func(ctx context.Context, organizationID string, userID string) (variable.Tree, error) {
 //				panic("mock out the FetchTree method")
 //			},
+//			SetDefaultValueFunc: func(ctx context.Context, id xid.ID, value string, organizationID string) error {
+//				panic("mock out the SetDefaultValue method")
+//			},
 //			SetValueFunc: func(ctx context.Context, id xid.ID, value string, organizationID string, userID string) error {
 //				panic("mock out the SetValue method")
 //			},
@@ -66,6 +69,9 @@ type VariableManagerMock struct {
 
 	// FetchTreeFunc mocks the FetchTree method.
 	FetchTreeFunc func(ctx context.Context, organizationID string, userID string) (variable.Tree, error)
+
+	// SetDefaultValueFunc mocks the SetDefaultValue method.
+	SetDefaultValueFunc func(ctx context.Context, id xid.ID, value string, organizationID string) error
 
 	// SetValueFunc mocks the SetValue method.
 	SetValueFunc func(ctx context.Context, id xid.ID, value string, organizationID string, userID string) error
@@ -127,6 +133,17 @@ type VariableManagerMock struct {
 			// UserID is the userID argument value.
 			UserID string
 		}
+		// SetDefaultValue holds details about calls to the SetDefaultValue method.
+		SetDefaultValue []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID xid.ID
+			// Value is the value argument value.
+			Value string
+			// OrganizationID is the organizationID argument value.
+			OrganizationID string
+		}
 		// SetValue holds details about calls to the SetValue method.
 		SetValue []struct {
 			// Ctx is the ctx argument value.
@@ -163,14 +180,15 @@ type VariableManagerMock struct {
 			OrganizationID string
 		}
 	}
-	lockCreateGroup    sync.RWMutex
-	lockCreateVariable sync.RWMutex
-	lockDeleteGroup    sync.RWMutex
-	lockDeleteVariable sync.RWMutex
-	lockFetchTree      sync.RWMutex
-	lockSetValue       sync.RWMutex
-	lockUpdateGroup    sync.RWMutex
-	lockUpdateVariable sync.RWMutex
+	lockCreateGroup     sync.RWMutex
+	lockCreateVariable  sync.RWMutex
+	lockDeleteGroup     sync.RWMutex
+	lockDeleteVariable  sync.RWMutex
+	lockFetchTree       sync.RWMutex
+	lockSetDefaultValue sync.RWMutex
+	lockSetValue        sync.RWMutex
+	lockUpdateGroup     sync.RWMutex
+	lockUpdateVariable  sync.RWMutex
 }
 
 // CreateGroup calls CreateGroupFunc.
@@ -396,6 +414,53 @@ func (mock *VariableManagerMock) FetchTreeCalls() []struct {
 	mock.lockFetchTree.RLock()
 	calls = mock.calls.FetchTree
 	mock.lockFetchTree.RUnlock()
+	return calls
+}
+
+// SetDefaultValue calls SetDefaultValueFunc.
+func (mock *VariableManagerMock) SetDefaultValue(ctx context.Context, id xid.ID, value string, organizationID string) error {
+	callInfo := struct {
+		Ctx            context.Context
+		ID             xid.ID
+		Value          string
+		OrganizationID string
+	}{
+		Ctx:            ctx,
+		ID:             id,
+		Value:          value,
+		OrganizationID: organizationID,
+	}
+	mock.lockSetDefaultValue.Lock()
+	mock.calls.SetDefaultValue = append(mock.calls.SetDefaultValue, callInfo)
+	mock.lockSetDefaultValue.Unlock()
+	if mock.SetDefaultValueFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.SetDefaultValueFunc(ctx, id, value, organizationID)
+}
+
+// SetDefaultValueCalls gets all the calls that were made to SetDefaultValue.
+// Check the length with:
+//
+//	len(mockedVariableManager.SetDefaultValueCalls())
+func (mock *VariableManagerMock) SetDefaultValueCalls() []struct {
+	Ctx            context.Context
+	ID             xid.ID
+	Value          string
+	OrganizationID string
+} {
+	var calls []struct {
+		Ctx            context.Context
+		ID             xid.ID
+		Value          string
+		OrganizationID string
+	}
+	mock.lockSetDefaultValue.RLock()
+	calls = mock.calls.SetDefaultValue
+	mock.lockSetDefaultValue.RUnlock()
 	return calls
 }
 

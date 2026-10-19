@@ -863,6 +863,20 @@ func (i *input) SetVariableValue(variableID xid.ID, value string) error {
 	return nil
 }
 
+// SetVariableDefault sets the default of the variable the id names, the
+// value everyone without their own sees.
+func (i *input) SetVariableDefault(variableID xid.ID, value string) error {
+	if err := i.variableMan.SetDefaultValue(i.ctx, variableID, value, i.orgID); err != nil {
+		if errutil.IsNotFound(err) {
+			return fmt.Errorf("variable %s: %w", variableID, ErrUnknownVariable)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
 // FetchBranchTags returns the tags the branch branchID names carries, in the
 // tags' display order.
 func (i *input) FetchBranchTags(documentID, branchID xid.ID) ([]tag.Tag, error) {
@@ -1329,6 +1343,10 @@ type VariableManager interface {
 
 	// SetValue should set the user's own value.
 	SetValue(ctx context.Context, id xid.ID, value, organizationID, userID string) error
+
+	// SetDefaultValue should set the value everyone without their own
+	// sees.
+	SetDefaultValue(ctx context.Context, id xid.ID, value, organizationID string) error
 }
 
 // Searcher is the full-text search surface search_documents uses.

@@ -952,7 +952,7 @@ func Test_deleteVariable_Execute(t *testing.T) {
 func Test_setVariableValueArgs_Validate(t *testing.T) {
 	t.Parallel()
 
-	assertValidate(t, setVariableValueArgs{VariableID: _testVariableID, Value: null.StringFrom("")}, map[string]Args{
+	assertValidate(t, setVariableValueArgs{VariableID: _testVariableID, Value: null.StringFrom(""), Default: true}, map[string]Args{
 		"variable_id": setVariableValueArgs{Value: null.StringFrom("x")},
 		"value":       setVariableValueArgs{VariableID: _testVariableID},
 	})
@@ -990,6 +990,10 @@ func Test_setVariableValue_Summary(t *testing.T) {
 			Args:   `{"variable_id":"` + _builtinVariableID.String() + `","value":"last_1_hour"}`,
 			Result: `Set your $metric_range to "last_1_hour"`,
 		},
+		"Default": {
+			Args:   `{"variable_id":"` + _builtinVariableID.String() + `","value":"last_7_days","default":true}`,
+			Result: `Set the default of $metric_range to "last_7_days"`,
+		},
 	}
 
 	for cn, c := range cc {
@@ -1012,9 +1016,12 @@ func Test_setVariableValue_Execute(t *testing.T) {
 	t.Parallel()
 
 	cc := map[string]struct {
-		Man  *VariableManagerMock
-		Args string
-		Err  error
+		Man         *VariableManagerMock
+		Args        string
+		ValueCalls  int
+		DefaultCall bool
+		Result      string
+		Err         error
 	}{
 		"Malformed arguments": {Man: stubVariableManager(), Args: `{`, Err: assert.AnError},
 		"Invalid value": {
@@ -1026,9 +1033,26 @@ func Test_setVariableValue_Execute(t *testing.T) {
 			Args: `{"variable_id":"` + _builtinVariableID.String() + `","value":"last_1_hour"}`,
 			Err:  variable.ErrInvalidTimeRange,
 		},
+		"Invalid default": {
+			Man: &VariableManagerMock{
+				SetDefaultValueFunc: func(context.Context, xid.ID, string, string) error {
+					return variable.ErrInvalidTimeRange
+				},
+			},
+			Args: `{"variable_id":"` + _builtinVariableID.String() + `","value":"last_1_hour","default":true}`,
+			Err:  variable.ErrInvalidTimeRange,
+		},
 		"Set": {
-			Man:  stubVariableManager(),
-			Args: `{"variable_id":"` + _builtinVariableID.String() + `","value":"last_1_hour"}`,
+			Man:        stubVariableManager(),
+			Args:       `{"variable_id":"` + _builtinVariableID.String() + `","value":"last_1_hour"}`,
+			ValueCalls: 1,
+			Result:     `{"variable_id":"` + _builtinVariableID.String() + `","value":"last_1_hour","default":false}`,
+		},
+		"Set the default": {
+			Man:         stubVariableManager(),
+			Args:        `{"variable_id":"` + _builtinVariableID.String() + `","value":"last_1_hour","default":true}`,
+			DefaultCall: true,
+			Result:      `{"variable_id":"` + _builtinVariableID.String() + `","value":"last_1_hour","default":true}`,
 		},
 	}
 
@@ -1043,13 +1067,30 @@ func Test_setVariableValue_Execute(t *testing.T) {
 				return
 			}
 
-			ff := c.Man.SetValueCalls()
-			require.Len(t, ff, 1)
-			assert.Equal(t, _builtinVariableID, ff[0].ID)
-			assert.Equal(t, "last_1_hour", ff[0].Value)
-			assert.Equal(t, "org", ff[0].OrganizationID)
-			assert.Equal(t, "user", ff[0].UserID)
-			assert.JSONEq(t, `{"variable_id":"`+_builtinVariableID.String()+`","value":"last_1_hour"}`, res)
+			assert.JSONEq(t, c.Result, res)
+
+			vv := c.Man.SetValueCalls()
+			require.Len(t, vv, c.ValueCalls)
+
+			for _, v := range vv {
+				assert.Equal(t, _builtinVariableID, v.ID)
+				assert.Equal(t, "last_1_hour", v.Value)
+				assert.Equal(t, "org", v.OrganizationID)
+				assert.Equal(t, "user", v.UserID)
+			}
+
+			dd := c.Man.SetDefaultValueCalls()
+
+			if !c.DefaultCall {
+				assert.Empty(t, dd)
+
+				return
+			}
+
+			require.Len(t, dd, 1)
+			assert.Equal(t, _builtinVariableID, dd[0].ID)
+			assert.Equal(t, "last_1_hour", dd[0].Value)
+			assert.Equal(t, "org", dd[0].OrganizationID)
 		})
 	}
 }

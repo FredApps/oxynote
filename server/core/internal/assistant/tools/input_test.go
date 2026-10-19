@@ -2771,3 +2771,47 @@ func Test_input_SetVariableValue(t *testing.T) {
 		})
 	}
 }
+
+func Test_input_SetVariableDefault(t *testing.T) {
+	t.Parallel()
+
+	stub := func(err error) *VariableManagerMock {
+		return &VariableManagerMock{
+			SetDefaultValueFunc: func(context.Context, xid.ID, string, string) error {
+				return err
+			},
+		}
+	}
+
+	cc := map[string]struct {
+		Man *VariableManagerMock
+		Err error
+	}{
+		"Error returned by VariableManager.SetDefaultValue": {
+			Man: stub(assert.AnError),
+			Err: assert.AnError,
+		},
+		"Not found": {
+			Man: stub(errutil.ErrNotFound),
+			Err: fmt.Errorf("variable %s: %w", _testVariableID, ErrUnknownVariable),
+		},
+		"Successful call": {
+			Man: stub(nil),
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			err := testInput(variableDeps(c.Man), NameSetVariableValue, `{}`).SetVariableDefault(_testVariableID, "x")
+			testutil.AssertEqualError(t, c.Err, err)
+
+			ff := c.Man.SetDefaultValueCalls()
+			require.Len(t, ff, 1)
+			assert.Equal(t, _testVariableID, ff[0].ID)
+			assert.Equal(t, "x", ff[0].Value)
+			assert.Equal(t, "org", ff[0].OrganizationID)
+		})
+	}
+}

@@ -36,7 +36,7 @@ type listVariables struct{}
 func (listVariables) Info() Info {
 	return Info{
 		Name:        NameListVariables,
-		Description: "List the global variables by group as [{id, name, color, builtin, variables: [{id, key, name, description, type, builtin, default, value, options}]}]. Queries and metrics reference a variable as $key, so one change updates every metric using it; each user picks their own. default is what anyone without their own sees; for a list, its first option's id. value is the user's own, or null. Built-ins cannot change.",
+		Description: "List the global variables by group as [{id, name, color, builtin, variables: [{id, key, name, description, type, builtin, default, value, options}]}]. Queries and metrics reference a variable as $key, so one change updates every metric using it; each user picks their own. default is what anyone without their own sees; for a list, its first option's id. value is the user's own, or null. Every metric follows the built-ins metric_range and metric_refresh unless pinned to a preset. A built-in's definition cannot change; set_variable_value sets its value or default.",
 		Properties:  map[string]any{},
 	}
 }
@@ -654,7 +654,7 @@ func (updateVariable) Info() Info {
 	return Info{
 		Name:        NameUpdateVariable,
 		Traits:      Traits{Write: true},
-		Description: "Change a global variable other than a built-in one; give only what changes. group_id moves it to the end of that group. options replace a list's; users who picked a removed value see the default again. A type change resets everyone's value. Returns {variable_id}.",
+		Description: "Change a global variable other than a built-in one, whose default set_variable_value sets; give only what changes. group_id moves it to the end of that group. options replace a list's; users who picked a removed value see the default again. A type change resets everyone's value. Returns {variable_id}.",
 		Properties: map[string]any{
 			"variable_id": map[string]any{"type": "string", "description": _variableIDDescription},
 			"group_id":    map[string]any{"type": "string", "description": "Optional. Moves it to the end of this group."},
@@ -793,8 +793,12 @@ type setVariableValueArgs struct {
 	// VariableID names the variable.
 	VariableID xid.ID `json:"variable_id"`
 
-	// Value is the user's new value. Required, though text may be empty.
+	// Value is the new value. Required, though text may be empty.
 	Value null.String `json:"value"`
+
+	// Default sets the organisation's default instead of the user's own
+	// value.
+	Default bool `json:"default"`
 }
 
 // Validate checks the arguments name a variable and give a value.
@@ -810,7 +814,8 @@ func (a setVariableValueArgs) Validate() error {
 	return nil
 }
 
-// setVariableValue sets the current user's own value of a variable.
+// setVariableValue sets the current user's own value of a variable, or
+// its organisation-wide default.
 type setVariableValue struct{}
 
 // Info returns the tool's model-facing description.
@@ -818,10 +823,11 @@ func (setVariableValue) Info() Info {
 	return Info{
 		Name:        NameSetVariableValue,
 		Traits:      Traits{Write: true},
-		Description: "Set the current user's own value of a global variable, built-ins included; nobody else's changes. A list takes an option id, a number a decimal, a time range a preset such as last_24_hours, text anything. Returns {variable_id, value}.",
+		Description: "Set the current user's own value of a global variable, built-ins included, or with default its organisation-wide default; prefer the user's own. Set metric_range to show every chart another period. A list takes an option id, a number a decimal, a time range a preset such as last_24_hours, text anything. Returns {variable_id, value, default}.",
 		Properties: map[string]any{
 			"variable_id": map[string]any{"type": "string", "description": _variableIDDescription},
 			"value":       map[string]any{"type": "string", "description": "The new value."},
+			"default":     map[string]any{"type": "boolean", "description": "Optional. True sets what everyone without their own value sees."},
 		},
 		Required: []string{"variable_id", "value"},
 	}
@@ -849,13 +855,18 @@ func (setVariableValue) Summary(inp DescribeInput) (ActionSummary, error) {
 		}
 	}
 
+	summary := fmt.Sprintf("Set your $%s to %q", v.Key, value)
+	if in.Default {
+		summary = fmt.Sprintf("Set the default of $%s to %q", v.Key, value)
+	}
+
 	return ActionSummary{
 		Tool:    NameSetVariableValue,
-		Summary: fmt.Sprintf("Set your $%s to %q", v.Key, value),
+		Summary: summary,
 	}, nil
 }
 
-// Execute sets the value.
+// Execute sets the value or the default.
 func (setVariableValue) Execute(inp *input) (string, error) {
 	var in setVariableValueArgs
 
@@ -863,11 +874,16 @@ func (setVariableValue) Execute(inp *input) (string, error) {
 		return "", err
 	}
 
-	if err := inp.SetVariableValue(in.VariableID, in.Value.String); err != nil {
+	set := inp.SetVariableValue
+	if in.Default {
+		set = inp.SetVariableDefault
+	}
+
+	if err := set(in.VariableID, in.Value.String); err != nil {
 		return "", err
 	}
 
-	return result(setVariableValueResult{VariableID: in.VariableID, Value: in.Value.String})
+	return result(setVariableValueResult{VariableID: in.VariableID, Value: in.Value.String, Default: in.Default})
 }
 
 // setVariableValueResult is what set_variable_value returns.
@@ -875,6 +891,9 @@ type setVariableValueResult struct {
 	// VariableID is the variable whose value was set.
 	VariableID xid.ID `json:"variable_id"`
 
-	// Value is the user's new value.
+	// Value is the new value.
 	Value string `json:"value"`
+
+	// Default indicates the organisation's default was set.
+	Default bool `json:"default"`
 }

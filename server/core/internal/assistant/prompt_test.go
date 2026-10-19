@@ -71,6 +71,9 @@ func Test_MCPInstructions(t *testing.T) {
 	assert.Contains(t, got, "names a branch by branch_id")
 	assert.Contains(t, got, "protected branch is read-only")
 
+	// metrics follow the built-in variables on both surfaces.
+	assert.Contains(t, got, "Metrics follow the built-in metric_range and metric_refresh variables")
+
 	// the persona and its confirmation flow are the chat surface's;
 	// telling an MCP client about either would be a lie.
 	assert.NotContains(t, got, "Rubber Duck")

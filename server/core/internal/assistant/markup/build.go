@@ -436,6 +436,7 @@ func buildMetric(n node, stored document.Block) (document.Block, error) {
 	}
 
 	setSimulation(attrs, stored)
+	setMetricWindow(attrs, stored)
 
 	blk := newBlock(document.BlockNodeMetricBlock, stored, nil)
 	maps.Copy(blk.Attrs, attrs)

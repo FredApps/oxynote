@@ -11,6 +11,14 @@ import (
 )
 
 const (
+	// KeyMetricRange is the key of the built-in time range every metric
+	// follows by default.
+	KeyMetricRange = "metric_range"
+
+	// KeyMetricRefresh is the key of the built-in refresh interval every
+	// metric follows by default.
+	KeyMetricRefresh = "metric_refresh"
+
 	// _builtinGroupName is the name of the group every organization
 	// starts with.
 	_builtinGroupName = "Metrics"
@@ -41,7 +49,7 @@ func SeedBuiltins(organizationID string) GroupTree {
 		ID:             xid.New(),
 		OrganizationID: organizationID,
 		GroupID:        g.ID,
-		Key:            "metric_range",
+		Key:            KeyMetricRange,
 		Name:           "Metric time range",
 		Type:           TypeTimeRange,
 		DefaultValue:   null.StringFrom(_defaultTimeRange),
@@ -54,7 +62,7 @@ func SeedBuiltins(organizationID string) GroupTree {
 		ID:             xid.New(),
 		OrganizationID: organizationID,
 		GroupID:        g.ID,
-		Key:            "metric_refresh",
+		Key:            KeyMetricRefresh,
 		Name:           "Metric refresh interval",
 		Type:           TypeList,
 		SortIndex:      1,
