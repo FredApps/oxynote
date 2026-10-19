@@ -228,9 +228,6 @@ var _ DB = &DBMock{}
 //			InsertGithubInstallationFunc: func(ctx context.Context, installationID int64) error {
 //				panic("mock out the InsertGithubInstallation method")
 //			},
-//			InsertSearchJobFunc: func(ctx context.Context, job search.Job) error {
-//				panic("mock out the InsertSearchJob method")
-//			},
 //			InsertSlackAppFunc: func(ctx context.Context, app slackCore.App) error {
 //				panic("mock out the InsertSlackApp method")
 //			},
@@ -519,9 +516,6 @@ type DBMock struct {
 
 	// InsertGithubInstallationFunc mocks the InsertGithubInstallation method.
 	InsertGithubInstallationFunc func(ctx context.Context, installationID int64) error
-
-	// InsertSearchJobFunc mocks the InsertSearchJob method.
-	InsertSearchJobFunc func(ctx context.Context, job search.Job) error
 
 	// InsertSlackAppFunc mocks the InsertSlackApp method.
 	InsertSlackAppFunc func(ctx context.Context, app slackCore.App) error
@@ -1175,13 +1169,6 @@ type DBMock struct {
 			// InstallationID is the installationID argument value.
 			InstallationID int64
 		}
-		// InsertSearchJob holds details about calls to the InsertSearchJob method.
-		InsertSearchJob []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Job is the job argument value.
-			Job search.Job
-		}
 		// InsertSlackApp holds details about calls to the InsertSlackApp method.
 		InsertSlackApp []struct {
 			// Ctx is the ctx argument value.
@@ -1509,7 +1496,6 @@ type DBMock struct {
 	lockInsertDocumentFile                        sync.RWMutex
 	lockInsertDocumentHook                        sync.RWMutex
 	lockInsertGithubInstallation                  sync.RWMutex
-	lockInsertSearchJob                           sync.RWMutex
 	lockInsertSlackApp                            sync.RWMutex
 	lockInsertSlackMessage                        sync.RWMutex
 	lockInsertSlackUserLink                       sync.RWMutex
@@ -4326,45 +4312,6 @@ func (mock *DBMock) InsertGithubInstallationCalls() []struct {
 	mock.lockInsertGithubInstallation.RLock()
 	calls = mock.calls.InsertGithubInstallation
 	mock.lockInsertGithubInstallation.RUnlock()
-	return calls
-}
-
-// InsertSearchJob calls InsertSearchJobFunc.
-func (mock *DBMock) InsertSearchJob(ctx context.Context, job search.Job) error {
-	callInfo := struct {
-		Ctx context.Context
-		Job search.Job
-	}{
-		Ctx: ctx,
-		Job: job,
-	}
-	mock.lockInsertSearchJob.Lock()
-	mock.calls.InsertSearchJob = append(mock.calls.InsertSearchJob, callInfo)
-	mock.lockInsertSearchJob.Unlock()
-	if mock.InsertSearchJobFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.InsertSearchJobFunc(ctx, job)
-}
-
-// InsertSearchJobCalls gets all the calls that were made to InsertSearchJob.
-// Check the length with:
-//
-//	len(mockedDB.InsertSearchJobCalls())
-func (mock *DBMock) InsertSearchJobCalls() []struct {
-	Ctx context.Context
-	Job search.Job
-} {
-	var calls []struct {
-		Ctx context.Context
-		Job search.Job
-	}
-	mock.lockInsertSearchJob.RLock()
-	calls = mock.calls.InsertSearchJob
-	mock.lockInsertSearchJob.RUnlock()
 	return calls
 }
 

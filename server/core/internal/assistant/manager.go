@@ -45,16 +45,16 @@ const _sessionExpiration = time.Hour * 24 * 7
 
 // Manager holds dependencies shared across assistant sessions.
 type Manager struct {
-	log           *slog.Logger
-	db            tools.DB
-	search        tools.Searcher
-	searchTrigger tools.SearchTrigger
-	runners       tools.DataSourceRunners
-	model         model.ToolCallingChatModel
-	summary       model.ToolCallingChatModel
-	applier       tools.EditApplier
-	tree          tools.TreeNotifier
-	tags          tools.TagNotifier
+	log         *slog.Logger
+	db          tools.DB
+	search      tools.Searcher
+	searchQueue tools.SearchQueue
+	runners     tools.DataSourceRunners
+	model       model.ToolCallingChatModel
+	summary     model.ToolCallingChatModel
+	applier     tools.EditApplier
+	tree        tools.TreeNotifier
+	tags        tools.TagNotifier
 
 	githubMan       *github.Manager
 	webchangeClient *webchange.Client
@@ -88,8 +88,8 @@ type Manager struct {
 // the provider package from the operator's configuration; summaryModel
 // backs context summarisation and may be the same model. The editClient
 // is the edit pipe to the Node hocuspocus service; the search client
-// backs the search_documents tool and searchTrigger runs the search-job
-// worker once a document write has committed; providerName labels token
+// backs the search_documents tool and searchQueue queues the
+// search jobs of document writes; providerName labels token
 // metrics so usage stays readable across a provider change.
 //
 // githubMan and webchangeClient tell the hook tools which integrations
@@ -107,7 +107,7 @@ func NewManager(
 	fc metricutil.Factory,
 	editClient tools.EditApplier,
 	searcher tools.Searcher,
-	searchTrigger tools.SearchTrigger,
+	searchQueue tools.SearchQueue,
 	runners tools.DataSourceRunners,
 	githubMan *github.Manager,
 	webchangeClient *webchange.Client,
@@ -141,14 +141,14 @@ func NewManager(
 	}
 
 	m := &Manager{
-		log:           log,
-		db:            db,
-		search:        searcher,
-		searchTrigger: searchTrigger,
-		runners:       runners,
-		model:         chatModel,
-		summary:       summaryModel,
-		applier:       editClient,
+		log:         log,
+		db:          db,
+		search:      searcher,
+		searchQueue: searchQueue,
+		runners:     runners,
+		model:       chatModel,
+		summary:     summaryModel,
+		applier:     editClient,
 
 		githubMan:       githubMan,
 		webchangeClient: webchangeClient,
@@ -215,7 +215,7 @@ func (m *Manager) ToolSet(orgID, userID string) *tools.Set {
 		m.log,
 		m.db,
 		m.search,
-		m.searchTrigger,
+		m.searchQueue,
 		m.runners,
 		m.githubMan,
 		m.webchangeClient,

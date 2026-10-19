@@ -13,6 +13,7 @@ import (
 	hookCore "github.com/oxynote/oxynote/server/core/internal/document/hook"
 	"github.com/oxynote/oxynote/server/core/internal/document/hook/processor"
 	"github.com/oxynote/oxynote/server/core/internal/search"
+	"github.com/oxynote/oxynote/server/core/pkg/sqlutil"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -138,6 +139,7 @@ func Test_Handler_UpdateDocumentBranchByIDUnsafe(t *testing.T) {
 	cc := map[string]struct {
 		DB          *DBMock
 		Tx          *TxMock
+		Queue       *SearchQueueMock
 		BeginErr    error
 		OmitBranch  bool
 		Body        string
@@ -289,13 +291,15 @@ func Test_Handler_UpdateDocumentBranchByIDUnsafe(t *testing.T) {
 			History:   1,
 			HistoryBy: null.StringFrom("u9"),
 		},
-		"Search job insertion error on default branch": {
+		"Search job enqueue error on default branch": {
 			DB: &DBMock{FetchDocumentUnsafeByBranchIDFunc: fetchStored},
 			Tx: &TxMock{
 				FetchDocumentMaintainersFunc: func(context.Context, xid.ID, string) ([]string, error) {
 					return []string{"u1", "u9"}, nil
 				},
-				InsertSearchJobFunc: func(context.Context, search.Job) error {
+			},
+			Queue: &SearchQueueMock{
+				EnqueueFunc: func(context.Context, sqlutil.Tx, search.Job) error {
 					return errors.New("boom")
 				},
 			},
@@ -375,7 +379,13 @@ func Test_Handler_UpdateDocumentBranchByIDUnsafe(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
+			queue := c.Queue
+			if queue == nil {
+				queue = &SearchQueueMock{}
+			}
+
 			hdl, cnt := newTestHandler(withTx(c.DB, c.Tx, c.BeginErr), &fakePublisher{})
+			hdl.searchQueue = queue
 
 			rec := httptest.NewRecorder()
 
@@ -385,7 +395,13 @@ func Test_Handler_UpdateDocumentBranchByIDUnsafe(t *testing.T) {
 			assert.Len(t, c.Tx.CommitCalls(), c.Committed)
 			assert.Equal(t, c.Metadata, cnt.metadata)
 			assert.Equal(t, c.Maintainers, cnt.maintainers)
-			assert.Len(t, c.Tx.InsertSearchJobCalls(), c.SearchJobs)
+
+			qq := queue.EnqueueCalls()
+			require.Len(t, qq, c.SearchJobs)
+
+			if c.SearchJobs > 0 {
+				assert.Same(t, c.Tx, qq[0].Tx)
+			}
 
 			// the entry is ordinary and records the persisted branch,
 			// credited to the last maintainer. A system write is not
@@ -408,9 +424,9 @@ func Test_Handler_UpdateDocumentBranchByIDUnsafe(t *testing.T) {
 			// the job is scoped to the persisted branch, whichever branch
 			// it is.
 			if !c.BranchID.IsZero() {
-				job := c.Tx.InsertSearchJobCalls()[0].Job
-				assert.Equal(t, c.BranchID, job.BranchID.V)
-				assert.True(t, job.DocumentID.Valid)
+				j := qq[0].J
+				assert.Equal(t, c.BranchID, j.BranchID.V)
+				assert.True(t, j.DocumentID.Valid)
 			}
 		})
 	}
@@ -769,6 +785,7 @@ func Test_Handler_CreateDocumentBranch(t *testing.T) {
 	cc := map[string]struct {
 		DB        *DBMock
 		Tx        *TxMock
+		Queue     *SearchQueueMock
 		BeginErr  error
 		NoSession bool
 		OmitDoc   bool
@@ -914,14 +931,15 @@ func Test_Handler_CreateDocumentBranch(t *testing.T) {
 			Committed: 1,
 			History:   1,
 		},
-		"Search job insert error": {
+		"Search job enqueue error": {
 			DB: &DBMock{
 				FetchDocumentByBranchIDFunc: func(context.Context, xid.ID, string) (*documentCore.Document, error) {
 					return storedDoc(), nil
 				},
 			},
-			Tx: &TxMock{
-				InsertSearchJobFunc: func(context.Context, search.Job) error {
+			Tx: &TxMock{},
+			Queue: &SearchQueueMock{
+				EnqueueFunc: func(context.Context, sqlutil.Tx, search.Job) error {
 					return errors.New("boom")
 				},
 			},
@@ -964,7 +982,13 @@ func Test_Handler_CreateDocumentBranch(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
+			queue := c.Queue
+			if queue == nil {
+				queue = &SearchQueueMock{}
+			}
+
 			hdl, _ := newTestHandler(withTx(c.DB, c.Tx, c.BeginErr), &fakePublisher{})
+			hdl.searchQueue = queue
 
 			man := &HookManagerMock{}
 			hdl.hookMan = man
@@ -1018,8 +1042,10 @@ func Test_Handler_CreateDocumentBranch(t *testing.T) {
 
 				// the fork is queued under its own branch id before the
 				// commit, so the branch is searchable without an edit.
-				require.Len(t, c.Tx.InsertSearchJobCalls(), 1)
-				assert.Equal(t, search.BranchScope("org1", forked.ID, forked.BranchID), c.Tx.InsertSearchJobCalls()[0].Job)
+				qq := queue.EnqueueCalls()
+				require.Len(t, qq, 1)
+				assert.Same(t, c.Tx, qq[0].Tx)
+				assert.Equal(t, search.BranchScope("org1", forked.ID, forked.BranchID), qq[0].J)
 			}
 		})
 	}
@@ -1029,6 +1055,7 @@ func Test_Handler_DeleteDocumentBranch(t *testing.T) {
 	cc := map[string]struct {
 		DB         *DBMock
 		Tx         *TxMock
+		Queue      *SearchQueueMock
 		NoSession  bool
 		OmitDoc    bool
 		OmitBranch bool
@@ -1121,7 +1148,7 @@ func Test_Handler_DeleteDocumentBranch(t *testing.T) {
 			RespCode: http.StatusInternalServerError,
 			Deleted:  1,
 		},
-		"Search job insert error": {
+		"Search job enqueue error": {
 			DB: &DBMock{
 				FetchDocumentByBranchIDFunc: func(context.Context, xid.ID, string) (*documentCore.Document, error) {
 					return branchDoc(_branchID), nil
@@ -1130,8 +1157,8 @@ func Test_Handler_DeleteDocumentBranch(t *testing.T) {
 					return 2, nil
 				},
 			},
-			Tx: &TxMock{
-				InsertSearchJobFunc: func(context.Context, search.Job) error {
+			Queue: &SearchQueueMock{
+				EnqueueFunc: func(context.Context, sqlutil.Tx, search.Job) error {
 					return errors.New("boom")
 				},
 			},
@@ -1162,7 +1189,13 @@ func Test_Handler_DeleteDocumentBranch(t *testing.T) {
 				tx = &TxMock{}
 			}
 
+			queue := c.Queue
+			if queue == nil {
+				queue = &SearchQueueMock{}
+			}
+
 			hdl, _ := newTestHandler(withTx(c.DB, tx, nil), &fakePublisher{})
+			hdl.searchQueue = queue
 
 			rec := httptest.NewRecorder()
 
@@ -1180,8 +1213,10 @@ func Test_Handler_DeleteDocumentBranch(t *testing.T) {
 			// the branch row is gone with its content, so the worker finds
 			// nothing under the scope and clears it.
 			if c.RespCode == http.StatusNoContent {
-				require.Len(t, tx.InsertSearchJobCalls(), 1)
-				assert.Equal(t, search.BranchScope("org1", _documentID, _branchID), tx.InsertSearchJobCalls()[0].Job)
+				qq := queue.EnqueueCalls()
+				require.Len(t, qq, 1)
+				assert.Same(t, tx, qq[0].Tx)
+				assert.Equal(t, search.BranchScope("org1", _documentID, _branchID), qq[0].J)
 			}
 		})
 	}
@@ -1193,6 +1228,7 @@ func Test_Handler_UpdateDocumentBranch(t *testing.T) {
 	cc := map[string]struct {
 		DB        *DBMock
 		Tx        *TxMock
+		Queue     *SearchQueueMock
 		NoSession bool
 		OmitDoc   bool
 		Body      string
@@ -1259,14 +1295,14 @@ func Test_Handler_UpdateDocumentBranch(t *testing.T) {
 			RespCode: http.StatusInternalServerError,
 			Updated:  1,
 		},
-		"Search job insert error": {
+		"Search job enqueue error": {
 			DB: &DBMock{
 				FetchDocumentByBranchIDFunc: func(context.Context, xid.ID, string) (*documentCore.Document, error) {
 					return branchDoc(_branchID), nil
 				},
 			},
-			Tx: &TxMock{
-				InsertSearchJobFunc: func(context.Context, search.Job) error {
+			Queue: &SearchQueueMock{
+				EnqueueFunc: func(context.Context, sqlutil.Tx, search.Job) error {
 					return errors.New("boom")
 				},
 			},
@@ -1323,7 +1359,13 @@ func Test_Handler_UpdateDocumentBranch(t *testing.T) {
 				tx = &TxMock{}
 			}
 
+			queue := c.Queue
+			if queue == nil {
+				queue = &SearchQueueMock{}
+			}
+
 			hdl, cnt := newTestHandler(withTx(c.DB, tx, nil), &fakePublisher{})
+			hdl.searchQueue = queue
 
 			rec := httptest.NewRecorder()
 
@@ -1331,7 +1373,9 @@ func Test_Handler_UpdateDocumentBranch(t *testing.T) {
 
 			assert.Equal(t, c.RespCode, rec.Code)
 			assert.Len(t, tx.UpdateDocumentBranchMetadataCalls(), c.Updated)
-			assert.Len(t, tx.InsertSearchJobCalls(), c.Jobs)
+
+			qq := queue.EnqueueCalls()
+			require.Len(t, qq, c.Jobs)
 			assert.Equal(t, c.Metadata, cnt.metadata)
 
 			if c.RespCode == http.StatusOK {
@@ -1344,8 +1388,12 @@ func Test_Handler_UpdateDocumentBranch(t *testing.T) {
 
 			// a rename resyncs the branch, since every entry carries the
 			// branch name.
+			if c.Jobs == 1 {
+				assert.Same(t, tx, qq[0].Tx)
+			}
+
 			if c.Jobs == 1 && c.RespCode == http.StatusOK {
-				assert.Equal(t, search.BranchScope("org1", _documentID, _branchID), tx.InsertSearchJobCalls()[0].Job)
+				assert.Equal(t, search.BranchScope("org1", _documentID, _branchID), qq[0].J)
 			}
 		})
 	}

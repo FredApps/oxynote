@@ -35,7 +35,7 @@ type Handler struct {
 	storer          Storer
 	githubMan       *github.Manager
 	webchangeClient *webchange.Client
-	searchTrigger   SearchTrigger
+	searchQueue     SearchQueue
 	publicURL       string
 }
 
@@ -47,7 +47,7 @@ func NewHandler(
 	storer Storer,
 	githubMan *github.Manager,
 	webchangeClient *webchange.Client,
-	searchTrigger SearchTrigger,
+	searchQueue SearchQueue,
 	publicURL string,
 ) *Handler {
 	return &Handler{
@@ -56,7 +56,7 @@ func NewHandler(
 		storer:          storer,
 		githubMan:       githubMan,
 		webchangeClient: webchangeClient,
-		searchTrigger:   searchTrigger,
+		searchQueue:     searchQueue,
 		publicURL:       publicURL,
 	}
 }
@@ -157,7 +157,7 @@ func (h *Handler) InitializeOrganization(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	if err = tx.InsertSearchJob(r.Context(), search.BranchScope(id, doc.ID, doc.BranchID)); err != nil {
+	if err = h.searchQueue.Enqueue(r.Context(), tx, search.BranchScope(id, doc.ID, doc.BranchID)); err != nil {
 		httpserver.RespondError(h.log, w, err)
 		return
 	}
@@ -167,8 +167,6 @@ func (h *Handler) InitializeOrganization(w http.ResponseWriter, r *http.Request)
 		httpserver.RespondError(h.log, w, err)
 		return
 	}
-
-	h.searchTrigger.Trigger()
 
 	httpserver.Respond(
 		h.log,
@@ -306,7 +304,7 @@ func (h *Handler) TeardownOrganization(w http.ResponseWriter, r *http.Request) {
 
 	defer tx.Rollback() //nolint:errcheck // error provides no meaningful info
 
-	if err = tx.InsertSearchJob(r.Context(), search.OrganizationScope(id)); err != nil {
+	if err = h.searchQueue.Enqueue(r.Context(), tx, search.OrganizationScope(id)); err != nil {
 		httpserver.RespondError(h.log, w, err)
 		return
 	}
@@ -326,8 +324,6 @@ func (h *Handler) TeardownOrganization(w http.ResponseWriter, r *http.Request) {
 		httpserver.RespondError(h.log, w, err)
 		return
 	}
-
-	h.searchTrigger.Trigger()
 
 	// the logo is the organization's own object; the documents' files are
 	// left to the file manager, which reclaims them once the cascade nulls
@@ -359,12 +355,13 @@ type DB interface {
 	DBAgent
 }
 
-// SearchTrigger runs the search-job worker once a job has committed.
+// SearchQueue queues search jobs.
 //
-//go:generate ../../../../scripts/codegen/mock -t internal SearchTrigger search_trigger
-type SearchTrigger interface {
-	// Trigger should run a search-job pass right away.
-	Trigger()
+//go:generate ../../../../scripts/codegen/mock -t internal SearchQueue search_queue
+type SearchQueue interface {
+	// Enqueue should queue the job on the transaction, to run once it
+	// commits.
+	Enqueue(ctx context.Context, tx sqlutil.Tx, j search.Job) error
 }
 
 // Tx is an interface that combines sqlutil.Tx and DBAgent.
@@ -384,9 +381,6 @@ type DBAgent interface {
 
 	// InsertDocument should insert the document.
 	InsertDocument(ctx context.Context, doc document.Document) error
-
-	// InsertSearchJob should queue the search job's scope.
-	InsertSearchJob(ctx context.Context, job search.Job) error
 
 	// FetchDocumentHooksByOrganizationID should return every hook of the
 	// organization.

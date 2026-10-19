@@ -8,7 +8,6 @@ import (
 	"github.com/guregu/null/v5"
 	"github.com/oxynote/oxynote/server/core/internal/assistant/edit"
 	"github.com/oxynote/oxynote/server/core/internal/document"
-	"github.com/oxynote/oxynote/server/core/internal/search"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/rs/xid"
@@ -27,9 +26,6 @@ func stubCreateDB(checkErr error) *DBMock {
 			reflect.ValueOf(dest).Elem().Set(reflect.ValueOf(&TxMock{
 				InsertDocumentFunc: func(context.Context, document.Document) error { return nil },
 				UpsertDocumentMaintainersFunc: func(context.Context, xid.ID, string, []string) error {
-					return nil
-				},
-				InsertSearchJobFunc: func(context.Context, search.Job) error {
 					return nil
 				},
 			}))
@@ -542,9 +538,6 @@ func Test_deleteDocument_Execute(t *testing.T) {
 			reflect.ValueOf(dest).Elem().Set(reflect.ValueOf(&TxMock{
 				DeleteDocumentFunc: func(_ context.Context, id xid.ID, _ string) ([]xid.ID, error) {
 					return []xid.ID{id}, deleteErr
-				},
-				InsertSearchJobFunc: func(context.Context, search.Job) error {
-					return nil
 				},
 			}))
 

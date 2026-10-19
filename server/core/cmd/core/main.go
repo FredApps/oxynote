@@ -33,6 +33,7 @@ import (
 	fileMan "github.com/oxynote/oxynote/server/core/internal/document/file/manager"
 	hookMan "github.com/oxynote/oxynote/server/core/internal/document/hook/manager"
 	"github.com/oxynote/oxynote/server/core/internal/email"
+	"github.com/oxynote/oxynote/server/core/internal/job"
 	"github.com/oxynote/oxynote/server/core/internal/notification"
 	"github.com/oxynote/oxynote/server/core/internal/notification/interpreter"
 	"github.com/oxynote/oxynote/server/core/internal/search"
@@ -88,7 +89,7 @@ const (
 	_sentryDedupCapacity = 100
 )
 
-func main() { //nolint:maintidx // main performs linear wiring of all components
+func main() { //nolint:maintidx,cyclop // main performs linear wiring of all components
 	var closers []io.Closer
 
 	log, flushLogs, ok := newLogger()
@@ -240,7 +241,26 @@ func main() { //nolint:maintidx // main performs linear wiring of all components
 
 	closers = append([]io.Closer{searchIndex}, closers...)
 
-	searchJobMan := searchMan.NewManager(log, dbc, searchIndex)
+	jobMan, err := job.NewManager(context.Background(), log, buildinfo.Getenv("DB_DSN"))
+	if err != nil {
+		fail(log, closers, "cannot create the job manager", err)
+		return
+	}
+
+	closers = append([]io.Closer{jobMan}, closers...)
+
+	searchJobMan, err := searchMan.NewManager(dbc, searchIndex, jobMan)
+	if err != nil {
+		fail(log, closers, "cannot create the search job manager", err)
+		return
+	}
+
+	// launching resumes the jobs a previous process left behind, so every
+	// manager that owns a job queue must be created before it.
+	if err = jobMan.Launch(); err != nil {
+		fail(log, closers, "cannot launch the job manager", err)
+		return
+	}
 
 	objectStorageURL := buildinfo.Getenv("OBJECT_STORAGE_URL")
 
@@ -414,8 +434,7 @@ func main() { //nolint:maintidx // main performs linear wiring of all components
 	backgroundSupv.Go(filesMan.Start)
 	backgroundSupv.Go(assistantMan.Start)
 	backgroundSupv.Go(simulationChecker.Start)
-
-	backgroundSupv.Go(searchJobMan.Start)
+	backgroundSupv.Go(jobMan.Start)
 
 	<-termCtx.Done()
 

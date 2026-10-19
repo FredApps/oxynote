@@ -984,12 +984,6 @@ func Test_agent_DeleteDocument(t *testing.T) {
 			err = db.sql.Get(&doc, q, args...)
 			require.Equal(t, sql.ErrNoRows, err)
 
-			// the delete itself queues nothing: the caller owns the
-			// search-index removal.
-			jobs, err := db.FetchSearchJobs(context.Background(), 0, 10)
-			require.NoError(t, err)
-			assert.Empty(t, jobs)
-
 			if c.FileID == "" {
 				return
 			}

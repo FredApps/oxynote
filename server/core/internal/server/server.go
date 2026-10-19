@@ -21,6 +21,7 @@ import (
 	datasourceCore "github.com/oxynote/oxynote/server/core/internal/datasource"
 	hookCore "github.com/oxynote/oxynote/server/core/internal/document/hook"
 	notificationCore "github.com/oxynote/oxynote/server/core/internal/notification"
+	"github.com/oxynote/oxynote/server/core/internal/search"
 	"github.com/oxynote/oxynote/server/core/internal/server/internal/assistant"
 	"github.com/oxynote/oxynote/server/core/internal/server/internal/auth"
 	"github.com/oxynote/oxynote/server/core/internal/server/internal/block"
@@ -41,6 +42,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/pkg/httpserver"
 	"github.com/oxynote/oxynote/server/core/pkg/logutil"
 	"github.com/oxynote/oxynote/server/core/pkg/metricutil"
+	"github.com/oxynote/oxynote/server/core/pkg/sqlutil"
 	"github.com/oxynote/oxynote/server/core/pkg/timeutil"
 	"github.com/oxynote/wetsocks/wsserver"
 )
@@ -153,7 +155,7 @@ func NewServer(
 	hookMan HookManager,
 	variableMan VariableManager,
 	searcher document.Searcher,
-	searchTrigger SearchTrigger,
+	searchQueue SearchQueue,
 	notifier Notifier,
 	emailSender email.Sender,
 	client *http.Client,
@@ -183,10 +185,10 @@ func NewServer(
 		storageClient,
 		githubMan,
 		webchangeClient,
-		searchTrigger,
+		searchQueue,
 		opts.PublicURL,
 	)
-	srv.handlers.document = document.NewHandler(log, db, hookMan, searcher, searchTrigger, notifier, storageClient)
+	srv.handlers.document = document.NewHandler(log, db, hookMan, searcher, searchQueue, notifier, storageClient)
 	srv.handlers.tag = tag.NewHandler(log, db)
 	srv.handlers.variable = variable.NewHandler(log, variableMan)
 	srv.handlers.comment = comment.NewHandler(log, db, notifier)
@@ -414,13 +416,13 @@ type Storer interface {
 	document.Storer
 }
 
-// SearchTrigger runs the search-job worker once a job has committed; the
-// handlers call it after their commits.
+// SearchQueue queues search jobs.
 //
-//go:generate ../../scripts/codegen/mock -t internal SearchTrigger search_trigger
-type SearchTrigger interface {
-	// Trigger should run a search-job pass right away.
-	Trigger()
+//go:generate ../../scripts/codegen/mock -t internal SearchQueue search_queue
+type SearchQueue interface {
+	// Enqueue should queue the job on the transaction, to run once it
+	// commits.
+	Enqueue(ctx context.Context, tx sqlutil.Tx, j search.Job) error
 }
 
 // Notifier is an interface that combines notificationCore.Notifier and

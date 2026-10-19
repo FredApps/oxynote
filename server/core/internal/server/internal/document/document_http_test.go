@@ -19,6 +19,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/search"
 	"github.com/oxynote/oxynote/server/core/internal/server/internal/auth"
 	"github.com/oxynote/oxynote/server/core/pkg/errutil"
+	"github.com/oxynote/oxynote/server/core/pkg/sqlutil"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
@@ -67,12 +68,12 @@ func newTestHandler(db DB, pub *fakePublisher) (*Handler, *callbackCounts) {
 	cnt := &callbackCounts{}
 
 	hdl := &Handler{
-		log:           slog.New(slog.DiscardHandler),
-		db:            db,
-		notifPub:      pub,
-		storer:        &StorerMock{},
-		hookMan:       &HookManagerMock{},
-		searchTrigger: &SearchTriggerMock{},
+		log:         slog.New(slog.DiscardHandler),
+		db:          db,
+		notifPub:    pub,
+		storer:      &StorerMock{},
+		hookMan:     &HookManagerMock{},
+		searchQueue: &SearchQueueMock{},
 	}
 
 	hdl.tree.changeCallback = func(string, null.Value[xid.ID]) { cnt.tree++ }
@@ -155,18 +156,18 @@ func Test_NewHandler(t *testing.T) {
 
 	db := &DBMock{}
 	searcher := &SearcherMock{}
-	trigger := &SearchTriggerMock{}
+	queue := &SearchQueueMock{}
 	pub := &fakePublisher{}
 	st := &StorerMock{}
 	man := &HookManagerMock{}
 
-	hdl := NewHandler(slog.New(slog.DiscardHandler), db, man, searcher, trigger, pub, st)
+	hdl := NewHandler(slog.New(slog.DiscardHandler), db, man, searcher, queue, pub, st)
 	require.NotNil(t, hdl)
 	assert.NotNil(t, hdl.log)
 	assert.Same(t, db, hdl.db)
 	assert.Same(t, man, hdl.hookMan)
 	assert.Same(t, searcher, hdl.searcher)
-	assert.Same(t, trigger, hdl.searchTrigger)
+	assert.Same(t, queue, hdl.searchQueue)
 	assert.Same(t, pub, hdl.notifPub)
 	assert.Same(t, st, hdl.storer)
 }
@@ -1637,6 +1638,7 @@ func Test_Handler_CreateDocument(t *testing.T) {
 
 	cc := map[string]struct {
 		Tx        *TxMock
+		Queue     *SearchQueueMock
 		BeginErr  error
 		NoSession bool
 		Body      string
@@ -1697,9 +1699,10 @@ func Test_Handler_CreateDocument(t *testing.T) {
 			Body:     validBody,
 			RespCode: http.StatusInternalServerError,
 		},
-		"Search job insertion error": {
-			Tx: &TxMock{
-				InsertSearchJobFunc: func(context.Context, search.Job) error {
+		"Search job enqueue error": {
+			Tx: &TxMock{},
+			Queue: &SearchQueueMock{
+				EnqueueFunc: func(context.Context, sqlutil.Tx, search.Job) error {
 					return errors.New("boom")
 				},
 			},
@@ -1758,7 +1761,13 @@ func Test_Handler_CreateDocument(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
+			queue := c.Queue
+			if queue == nil {
+				queue = &SearchQueueMock{}
+			}
+
 			hdl, cnt := newTestHandler(withTx(&DBMock{}, c.Tx, c.BeginErr), &fakePublisher{})
+			hdl.searchQueue = queue
 
 			rec := httptest.NewRecorder()
 
@@ -1797,6 +1806,7 @@ func Test_Handler_DeleteDocument(t *testing.T) {
 	cc := map[string]struct {
 		DB        *DBMock
 		Tx        *TxMock
+		Queue     *SearchQueueMock
 		BeginErr  error
 		NoSession bool
 		OmitDoc   bool
@@ -1846,7 +1856,9 @@ func Test_Handler_DeleteDocument(t *testing.T) {
 				DeleteDocumentFunc: func(context.Context, xid.ID, string) ([]xid.ID, error) {
 					return []xid.ID{_documentID}, nil
 				},
-				InsertSearchJobFunc: func(context.Context, search.Job) error {
+			},
+			Queue: &SearchQueueMock{
+				EnqueueFunc: func(context.Context, sqlutil.Tx, search.Job) error {
 					return errors.New("boom")
 				},
 			},
@@ -1881,7 +1893,13 @@ func Test_Handler_DeleteDocument(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
+			queue := c.Queue
+			if queue == nil {
+				queue = &SearchQueueMock{}
+			}
+
 			hdl, cnt := newTestHandler(withTx(c.DB, c.Tx, c.BeginErr), &fakePublisher{})
+			hdl.searchQueue = queue
 
 			rec := httptest.NewRecorder()
 
@@ -1897,9 +1915,10 @@ func Test_Handler_DeleteDocument(t *testing.T) {
 
 				// the resync of the returned subtree ids rides the same
 				// transaction as the delete.
-				ff := c.Tx.InsertSearchJobCalls()
-				require.Len(t, ff, 1)
-				assert.Equal(t, search.DocumentScope("org1", _documentID), ff[0].Job)
+				qq := queue.EnqueueCalls()
+				require.Len(t, qq, 1)
+				assert.Same(t, c.Tx, qq[0].Tx)
+				assert.Equal(t, search.DocumentScope("org1", _documentID), qq[0].J)
 			}
 		})
 	}

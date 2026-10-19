@@ -10,7 +10,6 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/datasource"
 	"github.com/oxynote/oxynote/server/core/internal/document"
 	"github.com/oxynote/oxynote/server/core/internal/document/hook"
-	"github.com/oxynote/oxynote/server/core/internal/search"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
 	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/rs/xid"
@@ -55,9 +54,6 @@ var _ Tx = &TxMock{}
 //			},
 //			InsertDocumentFunc: func(ctx context.Context, doc document.Document) error {
 //				panic("mock out the InsertDocument method")
-//			},
-//			InsertSearchJobFunc: func(ctx context.Context, job search.Job) error {
-//				panic("mock out the InsertSearchJob method")
 //			},
 //			InsertTagFunc: func(ctx context.Context, t tag.Tag) error {
 //				panic("mock out the InsertTag method")
@@ -107,9 +103,6 @@ type TxMock struct {
 
 	// InsertDocumentFunc mocks the InsertDocument method.
 	InsertDocumentFunc func(ctx context.Context, doc document.Document) error
-
-	// InsertSearchJobFunc mocks the InsertSearchJob method.
-	InsertSearchJobFunc func(ctx context.Context, job search.Job) error
 
 	// InsertTagFunc mocks the InsertTag method.
 	InsertTagFunc func(ctx context.Context, t tag.Tag) error
@@ -197,13 +190,6 @@ type TxMock struct {
 			// Doc is the doc argument value.
 			Doc document.Document
 		}
-		// InsertSearchJob holds details about calls to the InsertSearchJob method.
-		InsertSearchJob []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Job is the job argument value.
-			Job search.Job
-		}
 		// InsertTag holds details about calls to the InsertTag method.
 		InsertTag []struct {
 			// Ctx is the ctx argument value.
@@ -245,7 +231,6 @@ type TxMock struct {
 	lockFetchOrganizationMembers                  sync.RWMutex
 	lockInsertDataSource                          sync.RWMutex
 	lockInsertDocument                            sync.RWMutex
-	lockInsertSearchJob                           sync.RWMutex
 	lockInsertTag                                 sync.RWMutex
 	lockRollback                                  sync.RWMutex
 	lockUpdateOrganizationLogo                    sync.RWMutex
@@ -644,45 +629,6 @@ func (mock *TxMock) InsertDocumentCalls() []struct {
 	mock.lockInsertDocument.RLock()
 	calls = mock.calls.InsertDocument
 	mock.lockInsertDocument.RUnlock()
-	return calls
-}
-
-// InsertSearchJob calls InsertSearchJobFunc.
-func (mock *TxMock) InsertSearchJob(ctx context.Context, job search.Job) error {
-	callInfo := struct {
-		Ctx context.Context
-		Job search.Job
-	}{
-		Ctx: ctx,
-		Job: job,
-	}
-	mock.lockInsertSearchJob.Lock()
-	mock.calls.InsertSearchJob = append(mock.calls.InsertSearchJob, callInfo)
-	mock.lockInsertSearchJob.Unlock()
-	if mock.InsertSearchJobFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.InsertSearchJobFunc(ctx, job)
-}
-
-// InsertSearchJobCalls gets all the calls that were made to InsertSearchJob.
-// Check the length with:
-//
-//	len(mockedTx.InsertSearchJobCalls())
-func (mock *TxMock) InsertSearchJobCalls() []struct {
-	Ctx context.Context
-	Job search.Job
-} {
-	var calls []struct {
-		Ctx context.Context
-		Job search.Job
-	}
-	mock.lockInsertSearchJob.RLock()
-	calls = mock.calls.InsertSearchJob
-	mock.lockInsertSearchJob.RUnlock()
 	return calls
 }
 

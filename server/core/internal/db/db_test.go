@@ -261,17 +261,17 @@ func Test_DB_migrateUp(t *testing.T) {
 
 	organizationID := prepOrganizations(t, db, 1)[0]
 
-	// rolling the variables migration back and forth runs its backfill
-	// over an organization that existed before it.
+	// rolling back to before the variables migration (008) and up again
+	// runs its backfill over an organization that existed before it.
 	fsys, err := fs.Sub(_migrations, "migrations")
 	require.NoError(t, err)
 
-	_, err = db.migrations.ExecMax(
+	_, err = db.migrations.ExecVersion(
 		db.sql.DB,
 		"postgres",
 		&migr.HttpFileSystemMigrationSource{FileSystem: http.FS(fsys)},
 		migr.Down,
-		1,
+		7,
 	)
 	require.NoError(t, err)
 
@@ -341,6 +341,20 @@ func Test_DB_BeginTx(t *testing.T) {
 	require.NoError(t, db.BeginTx(context.Background(), &val))
 	assert.IsType(t, &Tx{}, val)
 	assert.NoError(t, val.Commit())
+}
+
+func Test_Tx_SQLTx(t *testing.T) {
+	db := prepTempDB(t)
+
+	var ntx *Tx
+
+	require.NoError(t, db.BeginTx(context.Background(), &ntx))
+
+	defer ntx.Rollback() //nolint:errcheck // error provides no meaningful info
+
+	stx := ntx.SQLTx()
+	require.NotNil(t, stx)
+	assert.Same(t, ntx.sql.Tx, stx)
 }
 
 func Test_Tx_Commit(t *testing.T) {

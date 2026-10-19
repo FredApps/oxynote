@@ -34,10 +34,11 @@ func discardLog() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
 }
 
-// stubSearchTrigger satisfies the tools' SearchTrigger with a no-op.
-type stubSearchTrigger struct{}
-
-func (stubSearchTrigger) Trigger() {}
+// stubSearchQueue satisfies the tools' SearchQueue. Its methods are never
+// called.
+type stubSearchQueue struct {
+	tools.SearchQueue
+}
 
 // stubToolsDB builds the tools-package DB mock every test tool set
 // runs against.
@@ -52,7 +53,7 @@ func stubSet(db *toolsMock.DB) *tools.Set {
 		discardLog(),
 		db,
 		&toolsMock.Searcher{},
-		stubSearchTrigger{},
+		stubSearchQueue{},
 		nil,
 		nil,
 		nil,

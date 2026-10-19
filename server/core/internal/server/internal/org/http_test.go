@@ -25,6 +25,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/storage"
 	"github.com/oxynote/oxynote/server/core/internal/tag"
 	"github.com/oxynote/oxynote/server/core/internal/variable"
+	"github.com/oxynote/oxynote/server/core/pkg/sqlutil"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
@@ -90,7 +91,7 @@ func Test_NewHandler(t *testing.T) {
 	githubMan := &github.Manager{}
 	webchangeClient := &webchange.Client{}
 
-	searchTrigger := &SearchTriggerMock{}
+	searchQueue := &SearchQueueMock{}
 
 	hdl := NewHandler(
 		slog.New(slog.DiscardHandler),
@@ -98,7 +99,7 @@ func Test_NewHandler(t *testing.T) {
 		storer,
 		githubMan,
 		webchangeClient,
-		searchTrigger,
+		searchQueue,
 		"loc",
 	)
 	require.NotNil(t, hdl)
@@ -107,7 +108,7 @@ func Test_NewHandler(t *testing.T) {
 	assert.Same(t, storer, hdl.storer)
 	assert.Same(t, githubMan, hdl.githubMan)
 	assert.Same(t, webchangeClient, hdl.webchangeClient)
-	assert.Same(t, searchTrigger, hdl.searchTrigger)
+	assert.Same(t, searchQueue, hdl.searchQueue)
 	assert.Equal(t, "loc", hdl.publicURL)
 }
 
@@ -190,12 +191,12 @@ func assertSeededVariables(t *testing.T, tx *TxMock, groups, variables int) {
 }
 
 func Test_Handler_InitializeOrganization(t *testing.T) {
-	type check func(*testing.T, *DBMock, *TxMock, *httptest.ResponseRecorder)
+	type check func(*testing.T, *DBMock, *TxMock, *SearchQueueMock, *httptest.ResponseRecorder)
 
 	checks := func(cc ...check) []check { return cc }
 
 	hasResp := func(code int, body string) check {
-		return func(t *testing.T, _ *DBMock, _ *TxMock, rec *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, _ *TxMock, _ *SearchQueueMock, rec *httptest.ResponseRecorder) {
 			assert.Equal(t, code, rec.Code)
 
 			if body == "" {
@@ -208,7 +209,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 	}
 
 	wasInsertDataSourceCalled := func(count int) check {
-		return func(t *testing.T, db *DBMock, _ *TxMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, db *DBMock, _ *TxMock, _ *SearchQueueMock, _ *httptest.ResponseRecorder) {
 			ff := db.InsertDataSourceCalls()
 			require.Len(t, ff, count)
 
@@ -224,7 +225,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 	}
 
 	wasInsertDocumentCalled := func(count int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *SearchQueueMock, _ *httptest.ResponseRecorder) {
 			ff := tx.InsertDocumentCalls()
 			require.Len(t, ff, count)
 
@@ -239,7 +240,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 	}
 
 	wasUpsertMaintainersCalled := func(count int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *SearchQueueMock, _ *httptest.ResponseRecorder) {
 			ff := tx.UpsertDocumentMaintainersCalls()
 			require.Len(t, ff, count)
 
@@ -253,31 +254,38 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 	}
 
 	wasInsertTagCalled := func(count int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *SearchQueueMock, _ *httptest.ResponseRecorder) {
 			assertSeededTags(t, tx, count)
 		}
 	}
 
 	wasWelcomeDocumentTagged := func(count int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *SearchQueueMock, _ *httptest.ResponseRecorder) {
 			assertWelcomeDocumentTagged(t, tx, count)
 		}
 	}
 
 	wereVariablesSeeded := func(groups, variables int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *SearchQueueMock, _ *httptest.ResponseRecorder) {
 			assertSeededVariables(t, tx, groups, variables)
 		}
 	}
 
-	wasSearchJobInserted := func(count int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *httptest.ResponseRecorder) {
-			assert.Len(t, tx.InsertSearchJobCalls(), count)
+	wasEnqueueCalled := func(count int) check {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, queue *SearchQueueMock, _ *httptest.ResponseRecorder) {
+			ff := queue.EnqueueCalls()
+			require.Len(t, ff, count)
+
+			if count == 0 {
+				return
+			}
+
+			assert.Same(t, tx, ff[0].Tx)
 		}
 	}
 
 	wasCommitCalled := func(count int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *SearchQueueMock, _ *httptest.ResponseRecorder) {
 			assert.Len(t, tx.CommitCalls(), count)
 			assert.NotEmpty(t, tx.RollbackCalls())
 		}
@@ -286,6 +294,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 	cc := map[string]struct {
 		DB         *DBMock
 		Tx         *TxMock
+		Queue      *SearchQueueMock
 		Members    []string
 		MembersErr error
 		BeginErr   error
@@ -338,7 +347,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 			},
 			Tx: &TxMock{},
 			Checks: checks(
-				func(t *testing.T, _ *DBMock, _ *TxMock, rec *httptest.ResponseRecorder) {
+				func(t *testing.T, _ *DBMock, _ *TxMock, _ *SearchQueueMock, rec *httptest.ResponseRecorder) {
 					assert.Equal(t, http.StatusCreated, rec.Code)
 				},
 				wasInsertDataSourceCalled(1),
@@ -347,7 +356,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 				// the charts have no data source to read, so the welcome
 				// document ships without them rather than with a dangling
 				// reference.
-				func(t *testing.T, _ *DBMock, tx *TxMock, _ *httptest.ResponseRecorder) {
+				func(t *testing.T, _ *DBMock, tx *TxMock, _ *SearchQueueMock, _ *httptest.ResponseRecorder) {
 					ff := tx.InsertDocumentCalls()
 					require.NotEmpty(t, ff)
 
@@ -433,20 +442,21 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
 				wereVariablesSeeded(1, 1),
-				wasSearchJobInserted(0),
+				wasEnqueueCalled(0),
 				wasCommitCalled(0),
 			),
 		},
-		"Search job insertion error": {
+		"Error returned by SearchQueue.Enqueue": {
 			Members: []string{"member1"},
-			Tx: &TxMock{
-				InsertSearchJobFunc: func(context.Context, search.Job) error {
-					return errors.New("boom")
+			Tx:      &TxMock{},
+			Queue: &SearchQueueMock{
+				EnqueueFunc: func(context.Context, sqlutil.Tx, search.Job) error {
+					return assert.AnError
 				},
 			},
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
-				wasSearchJobInserted(1),
+				wasEnqueueCalled(1),
 				wasCommitCalled(0),
 			),
 		},
@@ -470,7 +480,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 				},
 			},
 			Checks: checks(
-				func(t *testing.T, _ *DBMock, _ *TxMock, rec *httptest.ResponseRecorder) {
+				func(t *testing.T, _ *DBMock, _ *TxMock, _ *SearchQueueMock, rec *httptest.ResponseRecorder) {
 					assert.Equal(t, http.StatusCreated, rec.Code)
 					assert.Contains(t, rec.Body.String(), "Welcome to Oxynote!")
 				},
@@ -480,7 +490,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 				wasInsertTagCalled(3),
 				wasWelcomeDocumentTagged(1),
 				wereVariablesSeeded(1, 2),
-				wasSearchJobInserted(1),
+				wasEnqueueCalled(1),
 				wasCommitCalled(1),
 			),
 		},
@@ -499,11 +509,16 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 				return c.Members, c.MembersErr
 			}
 
+			queue := c.Queue
+			if queue == nil {
+				queue = &SearchQueueMock{}
+			}
+
 			hdl := Handler{
-				log:           slog.New(slog.DiscardHandler),
-				db:            withTx(db, c.Tx, c.BeginErr),
-				searchTrigger: &SearchTriggerMock{},
-				publicURL:     "loc",
+				log:         slog.New(slog.DiscardHandler),
+				db:          withTx(db, c.Tx, c.BeginErr),
+				searchQueue: queue,
+				publicURL:   "loc",
 			}
 
 			req := httptest.NewRequest(http.MethodPost, "http://test.com/", http.NoBody)
@@ -519,7 +534,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 			hdl.InitializeOrganization(rec, req.WithContext(ctx))
 
 			for _, ch := range c.Checks {
-				ch(t, db, c.Tx, rec)
+				ch(t, db, c.Tx, queue, rec)
 			}
 		})
 	}
@@ -1023,31 +1038,32 @@ func teardownHook(typ hook.Type) hook.Hook {
 }
 
 func Test_Handler_TeardownOrganization(t *testing.T) {
-	type check func(*testing.T, *DBMock, *TxMock, *StorerMock, *httptest.ResponseRecorder)
+	type check func(*testing.T, *DBMock, *TxMock, *SearchQueueMock, *StorerMock, *httptest.ResponseRecorder)
 
 	checks := func(cc ...check) []check { return cc }
 
 	hasResp := func(code int) check {
-		return func(t *testing.T, _ *DBMock, _ *TxMock, _ *StorerMock, rec *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, _ *TxMock, _ *SearchQueueMock, _ *StorerMock, rec *httptest.ResponseRecorder) {
 			assert.Equal(t, code, rec.Code)
 		}
 	}
 
-	wasSearchJobInserted := func(count int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *StorerMock, _ *httptest.ResponseRecorder) {
-			ff := tx.InsertSearchJobCalls()
+	wasEnqueueCalled := func(count int) check {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, queue *SearchQueueMock, _ *StorerMock, _ *httptest.ResponseRecorder) {
+			ff := queue.EnqueueCalls()
 			require.Len(t, ff, count)
 
 			if count == 0 {
 				return
 			}
 
-			assert.Equal(t, search.OrganizationScope("org2"), ff[0].Job)
+			assert.Same(t, tx, ff[0].Tx)
+			assert.Equal(t, search.OrganizationScope("org2"), ff[0].J)
 		}
 	}
 
 	wasSlackDeleted := func(count int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *StorerMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *SearchQueueMock, _ *StorerMock, _ *httptest.ResponseRecorder) {
 			ff := tx.DeleteSlackAppsByOrganizationIDCalls()
 			require.Len(t, ff, count)
 
@@ -1060,7 +1076,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 	}
 
 	wasGithubDeleted := func(count int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *StorerMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *SearchQueueMock, _ *StorerMock, _ *httptest.ResponseRecorder) {
 			ff := tx.DeleteGithubInstallationsByOrganizationIDCalls()
 			require.Len(t, ff, count)
 
@@ -1073,7 +1089,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 	}
 
 	wasLogoDeleted := func(count int) check {
-		return func(t *testing.T, _ *DBMock, _ *TxMock, storer *StorerMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, _ *TxMock, _ *SearchQueueMock, storer *StorerMock, _ *httptest.ResponseRecorder) {
 			ff := storer.DeleteCalls()
 			require.Len(t, ff, count)
 
@@ -1087,7 +1103,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 	}
 
 	wasCommitted := func(count int) check {
-		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *StorerMock, _ *httptest.ResponseRecorder) {
+		return func(t *testing.T, _ *DBMock, tx *TxMock, _ *SearchQueueMock, _ *StorerMock, _ *httptest.ResponseRecorder) {
 			require.Len(t, tx.CommitCalls(), count)
 		}
 	}
@@ -1103,6 +1119,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 	cc := map[string]struct {
 		DB       *DBMock
 		Tx       *TxMock
+		Queue    *SearchQueueMock
 		Storer   *StorerMock
 		BeginErr error
 		OmitID   bool
@@ -1114,7 +1131,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 			OmitID: true,
 			Checks: checks(
 				hasResp(http.StatusNotFound),
-				wasSearchJobInserted(0),
+				wasEnqueueCalled(0),
 			),
 		},
 		"Hook fetch error": {
@@ -1126,7 +1143,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 			Tx: &TxMock{},
 			Checks: checks(
 				hasResp(http.StatusInternalServerError),
-				wasSearchJobInserted(0),
+				wasEnqueueCalled(0),
 			),
 		},
 		// the teardown is refused rather than letting the organization go
@@ -1136,7 +1153,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 			Tx: &TxMock{},
 			Checks: checks(
 				hasResp(http.StatusInternalServerError),
-				wasSearchJobInserted(0),
+				wasEnqueueCalled(0),
 				wasCommitted(0),
 			),
 		},
@@ -1146,18 +1163,20 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 			BeginErr: errors.New("boom"),
 			Checks: checks(
 				hasResp(http.StatusInternalServerError),
-				wasSearchJobInserted(0),
+				wasEnqueueCalled(0),
 			),
 		},
-		"Search job insertion error": {
+		"Error returned by SearchQueue.Enqueue": {
 			DB: &DBMock{},
-			Tx: &TxMock{
-				InsertSearchJobFunc: func(context.Context, search.Job) error {
-					return errors.New("boom")
+			Tx: &TxMock{},
+			Queue: &SearchQueueMock{
+				EnqueueFunc: func(context.Context, sqlutil.Tx, search.Job) error {
+					return assert.AnError
 				},
 			},
 			Checks: checks(
 				hasResp(http.StatusInternalServerError),
+				wasEnqueueCalled(1),
 				wasSlackDeleted(0),
 				wasCommitted(0),
 			),
@@ -1219,7 +1238,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 			Tx: &TxMock{},
 			Checks: checks(
 				hasResp(http.StatusNoContent),
-				wasSearchJobInserted(1),
+				wasEnqueueCalled(1),
 				wasSlackDeleted(1),
 				wasGithubDeleted(1),
 				wasCommitted(1),
@@ -1237,11 +1256,16 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 				storer = &StorerMock{}
 			}
 
+			queue := c.Queue
+			if queue == nil {
+				queue = &SearchQueueMock{}
+			}
+
 			hdl := Handler{
-				log:           slog.New(slog.DiscardHandler),
-				db:            withTx(c.DB, c.Tx, c.BeginErr),
-				storer:        storer,
-				searchTrigger: &SearchTriggerMock{},
+				log:         slog.New(slog.DiscardHandler),
+				db:          withTx(c.DB, c.Tx, c.BeginErr),
+				storer:      storer,
+				searchQueue: queue,
 			}
 
 			req := httptest.NewRequest(http.MethodPost, "http://test.com/", http.NoBody)
@@ -1257,7 +1281,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 			hdl.TeardownOrganization(rec, req.WithContext(ctx))
 
 			for _, ch := range c.Checks {
-				ch(t, c.DB, c.Tx, storer, rec)
+				ch(t, c.DB, c.Tx, queue, storer, rec)
 			}
 		})
 	}

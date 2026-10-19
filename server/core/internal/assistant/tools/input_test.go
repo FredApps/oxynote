@@ -26,6 +26,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/tag"
 	"github.com/oxynote/oxynote/server/core/internal/variable"
 	"github.com/oxynote/oxynote/server/core/pkg/errutil"
+	"github.com/oxynote/oxynote/server/core/pkg/sqlutil"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/rs/xid"
 	"github.com/shopspring/decimal"
@@ -73,10 +74,10 @@ func testDeps(db *DBMock, applier *EditApplierMock, tree *TreeNotifierMock) *Dep
 	}
 
 	d := &Deps{
-		log:           discardLog(),
-		db:            db,
-		search:        &SearcherMock{},
-		searchTrigger: &SearchTriggerMock{},
+		log:         discardLog(),
+		db:          db,
+		search:      &SearcherMock{},
+		searchQueue: &SearchQueueMock{},
 		runners: &DataSourceRunnersMock{
 			RunnerFunc: func(datasource.DataSource) datasource.Runner {
 				return &datasourceMock.Runner{}
@@ -418,15 +419,15 @@ func Test_NewDeps(t *testing.T) {
 		RunnerFunc: func(datasource.DataSource) datasource.Runner { return runner },
 	}
 
-	trigger := &SearchTriggerMock{}
+	queue := &SearchQueueMock{}
 
-	d := NewDeps(discardLog(), db, searcher, trigger, runners, gh, wc, hookMan, varMan, applier, tree, tags, offload, "org", "user")
+	d := NewDeps(discardLog(), db, searcher, queue, runners, gh, wc, hookMan, varMan, applier, tree, tags, offload, "org", "user")
 	require.NotNil(t, d)
 
 	assert.NotNil(t, d.log)
 	assert.Same(t, db, d.db)
 	assert.Same(t, searcher, d.search)
-	assert.Same(t, trigger, d.searchTrigger)
+	assert.Same(t, queue, d.searchQueue)
 	assert.Same(t, runners, d.runners)
 	assert.Same(t, gh, d.githubMan)
 	assert.Same(t, wc, d.webchangeClient)
@@ -521,21 +522,28 @@ func Test_input_CreateDocument(t *testing.T) {
 	type tcase struct {
 		DB      *DBMock
 		Tx      *TxMock
+		Queue   *SearchQueueMock
 		Parent  null.Value[xid.ID]
 		Commits int
+		Jobs    int
 		Err     error
 	}
 
-	stubTx := func(insertErr, upsertErr, jobErr, commitErr error) *TxMock {
+	stubQueue := func(enqueueErr error) *SearchQueueMock {
+		return &SearchQueueMock{
+			EnqueueFunc: func(context.Context, sqlutil.Tx, search.Job) error {
+				return enqueueErr
+			},
+		}
+	}
+
+	stubTx := func(insertErr, upsertErr, commitErr error) *TxMock {
 		return &TxMock{
 			InsertDocumentFunc: func(context.Context, document.Document) error {
 				return insertErr
 			},
 			UpsertDocumentMaintainersFunc: func(context.Context, xid.ID, string, []string) error {
 				return upsertErr
-			},
-			InsertSearchJobFunc: func(context.Context, search.Job) error {
-				return jobErr
 			},
 			CommitFunc: func() error { return commitErr },
 		}
@@ -564,7 +572,7 @@ func Test_input_CreateDocument(t *testing.T) {
 				return assert.AnError
 			}
 
-			return tcase{DB: db, Parent: null.ValueFrom(xid.New()), Err: assert.AnError}
+			return tcase{DB: db, Queue: stubQueue(nil), Parent: null.ValueFrom(xid.New()), Err: assert.AnError}
 		}(),
 		"Unknown parent": func() tcase {
 			parentID := xid.New()
@@ -573,35 +581,35 @@ func Test_input_CreateDocument(t *testing.T) {
 				return sql.ErrNoRows
 			}
 
-			return tcase{DB: db, Parent: null.ValueFrom(parentID), Err: fmt.Errorf("parent %s: %w", parentID, errUnknownParent)}
+			return tcase{DB: db, Queue: stubQueue(nil), Parent: null.ValueFrom(parentID), Err: fmt.Errorf("parent %s: %w", parentID, errUnknownParent)}
 		}(),
 		"Error returned by db.BeginTx": func() tcase {
-			return tcase{DB: stubDB(nil, assert.AnError), Err: assert.AnError}
+			return tcase{DB: stubDB(nil, assert.AnError), Queue: stubQueue(nil), Err: assert.AnError}
 		}(),
 		"Error returned by Tx.InsertDocument": func() tcase {
-			tx := stubTx(assert.AnError, nil, nil, nil)
+			tx := stubTx(assert.AnError, nil, nil)
 
-			return tcase{DB: stubDB(tx, nil), Tx: tx, Err: assert.AnError}
+			return tcase{DB: stubDB(tx, nil), Tx: tx, Queue: stubQueue(nil), Err: assert.AnError}
 		}(),
 		"Error returned by Tx.UpsertDocumentMaintainers": func() tcase {
-			tx := stubTx(nil, assert.AnError, nil, nil)
+			tx := stubTx(nil, assert.AnError, nil)
 
-			return tcase{DB: stubDB(tx, nil), Tx: tx, Err: assert.AnError}
+			return tcase{DB: stubDB(tx, nil), Tx: tx, Queue: stubQueue(nil), Err: assert.AnError}
 		}(),
-		"Error returned by Tx.InsertDocumentSearchJob": func() tcase {
-			tx := stubTx(nil, nil, assert.AnError, nil)
+		"Error returned by SearchQueue.Enqueue": func() tcase {
+			tx := stubTx(nil, nil, nil)
 
-			return tcase{DB: stubDB(tx, nil), Tx: tx, Err: assert.AnError}
+			return tcase{DB: stubDB(tx, nil), Tx: tx, Queue: stubQueue(assert.AnError), Jobs: 1, Err: assert.AnError}
 		}(),
 		"Error returned by Tx.Commit": func() tcase {
-			tx := stubTx(nil, nil, nil, assert.AnError)
+			tx := stubTx(nil, nil, assert.AnError)
 
-			return tcase{DB: stubDB(tx, nil), Tx: tx, Commits: 1, Err: assert.AnError}
+			return tcase{DB: stubDB(tx, nil), Tx: tx, Queue: stubQueue(nil), Commits: 1, Jobs: 1, Err: assert.AnError}
 		}(),
 		"Every write lands together": func() tcase {
-			tx := stubTx(nil, nil, nil, nil)
+			tx := stubTx(nil, nil, nil)
 
-			return tcase{DB: stubDB(tx, nil), Tx: tx, Commits: 1}
+			return tcase{DB: stubDB(tx, nil), Tx: tx, Queue: stubQueue(nil), Commits: 1, Jobs: 1}
 		}(),
 	}
 
@@ -609,12 +617,23 @@ func Test_input_CreateDocument(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			inp := testInput(testDeps(c.DB, nil, nil), NameCreateDocument, `{}`)
+			deps := testDeps(c.DB, nil, nil)
+			deps.searchQueue = c.Queue
+			inp := testInput(deps, NameCreateDocument, `{}`)
 
 			doc := document.Document{ID: xid.New(), BranchID: xid.New(), ParentID: c.Parent}
 
 			err := inp.CreateDocument(doc)
 			testutil.AssertEqualError(t, c.Err, err)
+
+			ff := c.Queue.EnqueueCalls()
+			require.Len(t, ff, c.Jobs)
+
+			if c.Jobs != 0 {
+				assert.Same(t, c.Tx, ff[0].Tx)
+				assert.Equal(t, doc.ID, ff[0].J.DocumentID.V)
+				assert.Equal(t, doc.BranchID, ff[0].J.BranchID.V)
+			}
 
 			if c.Tx == nil {
 				return
@@ -638,18 +657,24 @@ func Test_input_DeleteDocument(t *testing.T) {
 	type tcase struct {
 		DB      *DBMock
 		Tx      *TxMock
+		Queue   *SearchQueueMock
 		Commits int
 		Jobs    int
 		Err     error
 	}
 
-	stubTx := func(ids []xid.ID, deleteErr, jobErr, commitErr error) *TxMock {
+	stubQueue := func(enqueueErr error) *SearchQueueMock {
+		return &SearchQueueMock{
+			EnqueueFunc: func(context.Context, sqlutil.Tx, search.Job) error {
+				return enqueueErr
+			},
+		}
+	}
+
+	stubTx := func(ids []xid.ID, deleteErr, commitErr error) *TxMock {
 		return &TxMock{
 			DeleteDocumentFunc: func(context.Context, xid.ID, string) ([]xid.ID, error) {
 				return ids, deleteErr
-			},
-			InsertSearchJobFunc: func(context.Context, search.Job) error {
-				return jobErr
 			},
 			CommitFunc: func() error { return commitErr },
 		}
@@ -674,35 +699,35 @@ func Test_input_DeleteDocument(t *testing.T) {
 
 	cc := map[string]tcase{
 		"Error returned by db.BeginTx": func() tcase {
-			return tcase{DB: stubDB(nil, assert.AnError), Err: assert.AnError}
+			return tcase{DB: stubDB(nil, assert.AnError), Queue: stubQueue(nil), Err: assert.AnError}
 		}(),
 		"Error returned by Tx.DeleteDocument": func() tcase {
-			tx := stubTx(nil, assert.AnError, nil, nil)
+			tx := stubTx(nil, assert.AnError, nil)
 
-			return tcase{DB: stubDB(tx, nil), Tx: tx, Err: assert.AnError}
+			return tcase{DB: stubDB(tx, nil), Tx: tx, Queue: stubQueue(nil), Err: assert.AnError}
 		}(),
-		"Error returned by Tx.InsertDocumentSearchJob": func() tcase {
-			tx := stubTx([]xid.ID{docID}, nil, assert.AnError, nil)
+		"Error returned by SearchQueue.Enqueue": func() tcase {
+			tx := stubTx([]xid.ID{docID}, nil, nil)
 
-			return tcase{DB: stubDB(tx, nil), Tx: tx, Jobs: 1, Err: assert.AnError}
+			return tcase{DB: stubDB(tx, nil), Tx: tx, Queue: stubQueue(assert.AnError), Jobs: 1, Err: assert.AnError}
 		}(),
 		"Error returned by Tx.Commit": func() tcase {
-			tx := stubTx([]xid.ID{docID}, nil, nil, assert.AnError)
+			tx := stubTx([]xid.ID{docID}, nil, assert.AnError)
 
-			return tcase{DB: stubDB(tx, nil), Tx: tx, Commits: 1, Jobs: 1, Err: assert.AnError}
+			return tcase{DB: stubDB(tx, nil), Tx: tx, Queue: stubQueue(nil), Commits: 1, Jobs: 1, Err: assert.AnError}
 		}(),
 		// a delete that matched nothing means the id names no document
 		// in this organisation — a miss, not a success.
 		"Empty subtree reports an unknown document": func() tcase {
-			tx := stubTx(nil, nil, nil, nil)
+			tx := stubTx(nil, nil, nil)
 
-			return tcase{DB: stubDB(tx, nil), Tx: tx, Err: ErrUnknownDocument}
+			return tcase{DB: stubDB(tx, nil), Tx: tx, Queue: stubQueue(nil), Err: ErrUnknownDocument}
 		}(),
 		"Delete and search removal land together": func() tcase {
-			tx := stubTx([]xid.ID{docID, xid.New()}, nil, nil, nil)
+			tx := stubTx([]xid.ID{docID, xid.New()}, nil, nil)
 
 			// one job per cascade-deleted document.
-			return tcase{DB: stubDB(tx, nil), Tx: tx, Commits: 1, Jobs: 2}
+			return tcase{DB: stubDB(tx, nil), Tx: tx, Queue: stubQueue(nil), Commits: 1, Jobs: 2}
 		}(),
 	}
 
@@ -711,7 +736,9 @@ func Test_input_DeleteDocument(t *testing.T) {
 			t.Parallel()
 
 			tree := &TreeNotifierMock{}
-			inp := testInput(testDeps(c.DB, nil, tree), NameDeleteDocument, `{}`)
+			deps := testDeps(c.DB, nil, tree)
+			deps.searchQueue = c.Queue
+			inp := testInput(deps, NameDeleteDocument, `{}`)
 
 			err := inp.DeleteDocument(docID)
 			testutil.AssertEqualError(t, c.Err, err)
@@ -731,12 +758,13 @@ func Test_input_DeleteDocument(t *testing.T) {
 			assert.Len(t, c.Tx.CommitCalls(), c.Commits)
 			assert.Len(t, c.Tx.RollbackCalls(), 1)
 
-			ff := c.Tx.InsertSearchJobCalls()
+			ff := c.Queue.EnqueueCalls()
 			require.Len(t, ff, c.Jobs)
 
 			if c.Jobs != 0 {
-				assert.True(t, ff[0].Job.DocumentID.Valid)
-				assert.False(t, ff[0].Job.BranchID.Valid)
+				assert.Same(t, c.Tx, ff[0].Tx)
+				assert.True(t, ff[0].J.DocumentID.Valid)
+				assert.False(t, ff[0].J.BranchID.Valid)
 			}
 		})
 	}

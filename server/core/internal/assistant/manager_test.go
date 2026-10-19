@@ -39,10 +39,11 @@ func discardLog() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
 }
 
-// stubSearchTrigger satisfies the tools' SearchTrigger with a no-op.
-type stubSearchTrigger struct{}
-
-func (*stubSearchTrigger) Trigger() {}
+// stubSearchQueue satisfies the tools' SearchQueue. Its methods are never
+// called.
+type stubSearchQueue struct {
+	tools.SearchQueue
+}
 
 // stubHookManager satisfies the tools' HookManager. Its methods are never
 // called.
@@ -203,18 +204,18 @@ func testManagerStores() (*Manager, *stores) {
 	log := discardLog()
 
 	m := &Manager{
-		log:           log,
-		db:            &toolsMock.DB{},
-		search:        &toolsMock.Searcher{},
-		searchTrigger: &stubSearchTrigger{},
-		applier:       &toolsMock.EditApplier{},
-		history:       persist.NewHistory(log, st.history),
-		checkpoints:   persist.NewCheckpoints(log, st.blobs),
-		pendings:      persist.NewPendings(log, st.pendings),
-		offload:       persist.NewOffload(st.blobs),
-		metrics:       newMetrics(metricutil.NewFactory("test", prometheus.NewRegistry()), "claude"),
-		model:         stubChatModel(),
-		summary:       stubChatModel(),
+		log:         log,
+		db:          &toolsMock.DB{},
+		search:      &toolsMock.Searcher{},
+		searchQueue: &stubSearchQueue{},
+		applier:     &toolsMock.EditApplier{},
+		history:     persist.NewHistory(log, st.history),
+		checkpoints: persist.NewCheckpoints(log, st.blobs),
+		pendings:    persist.NewPendings(log, st.pendings),
+		offload:     persist.NewOffload(st.blobs),
+		metrics:     newMetrics(metricutil.NewFactory("test", prometheus.NewRegistry()), "claude"),
+		model:       stubChatModel(),
+		summary:     stubChatModel(),
 	}
 
 	m.turns.m = make(map[string]struct{})
@@ -255,7 +256,7 @@ func Test_NewManager(t *testing.T) {
 			wc := &webchange.Client{}
 			hm := &stubHookManager{}
 			vm := &stubVariableManager{}
-			m := NewManager(discardLog(), nil, c.Pool, nil, nil, fc, nil, nil, &stubSearchTrigger{}, nil, gh, wc, hm, vm, "claude")
+			m := NewManager(discardLog(), nil, c.Pool, nil, nil, fc, nil, nil, &stubSearchQueue{}, nil, gh, wc, hm, vm, "claude")
 
 			require.NotNil(t, m)
 			assert.NotNil(t, m.log)

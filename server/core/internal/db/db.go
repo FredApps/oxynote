@@ -294,6 +294,11 @@ type Tx struct {
 	sql *sqlx.Tx
 }
 
+// SQLTx returns the underlying transaction.
+func (tx *Tx) SQLTx() *sql.Tx {
+	return tx.sql.Tx
+}
+
 // Commit commits a transaction.
 func (tx *Tx) Commit() error {
 	return tx.sql.Commit()

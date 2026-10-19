@@ -64,11 +64,6 @@ func Test_Options_validate(t *testing.T) {
 // stubSearcher satisfies the document handler's Searcher.
 type stubSearcher struct{}
 
-// stubSearchTrigger satisfies SearchTrigger with a no-op.
-type stubSearchTrigger struct{}
-
-func (stubSearchTrigger) Trigger() {}
-
 func (stubSearcher) SearchDocuments(context.Context, string, string) ([]byte, error) {
 	return nil, nil
 }
@@ -90,7 +85,7 @@ func Test_NewServer(t *testing.T) {
 	githubMan, err := github.NewManager(nil, github.Options{})
 	require.NoError(t, err)
 
-	assistantMan := assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, nil, "claude")
+	assistantMan := assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, &SearchQueueMock{}, nil, githubMan, nil, nil, nil, "claude")
 
 	slackMan, err := slack.NewManager(log, nil, nil, nil, nil, slack.Options{})
 	require.NoError(t, err)
@@ -117,7 +112,7 @@ func Test_NewServer(t *testing.T) {
 			&HookManagerMock{},
 			&VariableManagerMock{},
 			stubSearcher{},
-			stubSearchTrigger{},
+			&SearchQueueMock{},
 			notifier,
 			nil,
 			http.DefaultClient,
@@ -144,7 +139,7 @@ func Test_NewServer(t *testing.T) {
 			// a manager of this subtest's own: NewServer calls
 			// SetTreeNotifier, which must not race the parallel
 			// success case's identical call on a shared manager.
-			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, nil, "claude"),
+			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, &SearchQueueMock{}, nil, githubMan, nil, nil, nil, "claude"),
 			datasourceCore.NewManager(log, nil),
 			nil,
 			githubMan,
@@ -153,7 +148,7 @@ func Test_NewServer(t *testing.T) {
 			&HookManagerMock{},
 			&VariableManagerMock{},
 			stubSearcher{},
-			stubSearchTrigger{},
+			&SearchQueueMock{},
 			notifier,
 			nil,
 			http.DefaultClient,
@@ -192,7 +187,7 @@ func Test_NewServer(t *testing.T) {
 			hookMan,
 			variableMan,
 			stubSearcher{},
-			stubSearchTrigger{},
+			&SearchQueueMock{},
 			notifier,
 			nil,
 			http.DefaultClient,
@@ -246,7 +241,7 @@ func Test_NewServer(t *testing.T) {
 			// a manager of this subtest's own: NewServer calls
 			// SetTreeNotifier, which must not race the parallel
 			// success case's identical call on a shared manager.
-			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, nil, "claude"),
+			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, &SearchQueueMock{}, nil, githubMan, nil, nil, nil, "claude"),
 			datasourceCore.NewManager(log, nil),
 			nil,
 			githubMan,
@@ -255,7 +250,7 @@ func Test_NewServer(t *testing.T) {
 			&HookManagerMock{},
 			&VariableManagerMock{},
 			stubSearcher{},
-			stubSearchTrigger{},
+			&SearchQueueMock{},
 			notifier,
 			nil,
 			http.DefaultClient,
@@ -291,7 +286,7 @@ func Test_NewServer(t *testing.T) {
 			db,
 			fc,
 			storer,
-			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, stubSearchTrigger{}, nil, githubMan, nil, nil, nil, "claude"),
+			assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, &SearchQueueMock{}, nil, githubMan, nil, nil, nil, "claude"),
 			datasourceCore.NewManager(log, nil),
 			nil,
 			githubMan,
@@ -300,7 +295,7 @@ func Test_NewServer(t *testing.T) {
 			&HookManagerMock{},
 			&VariableManagerMock{},
 			stubSearcher{},
-			stubSearchTrigger{},
+			&SearchQueueMock{},
 			notifier,
 			nil,
 			http.DefaultClient,

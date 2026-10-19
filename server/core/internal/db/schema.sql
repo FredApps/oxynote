@@ -777,31 +777,6 @@ ALTER TABLE ONLY public.personal_variables
 ALTER TABLE ONLY public.personal_variables
     ADD CONSTRAINT personal_variables_fk_variable_group_id_fkey FOREIGN KEY (fk_variable_group_id) REFERENCES public.personal_variable_groups(id);
 
-CREATE TABLE public.search_jobs (
-    id bigint NOT NULL,
-    version bigint DEFAULT 1 NOT NULL,
-    organization_id text NOT NULL,
-    document_id text,
-    branch_id text
-);
-
-CREATE SEQUENCE public.search_jobs_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER SEQUENCE public.search_jobs_id_seq OWNED BY public.search_jobs.id;
-
-ALTER TABLE ONLY public.search_jobs ALTER COLUMN id SET DEFAULT nextval('public.search_jobs_id_seq'::regclass);
-
-ALTER TABLE ONLY public.search_jobs
-    ADD CONSTRAINT search_jobs_organization_id_document_id_branch_id_key UNIQUE NULLS NOT DISTINCT (organization_id, document_id, branch_id);
-
-ALTER TABLE ONLY public.search_jobs
-    ADD CONSTRAINT search_jobs_pkey PRIMARY KEY (id);
-
 CREATE TABLE public.slack_apps (
     team_id text NOT NULL,
     fk_organization_id text,
