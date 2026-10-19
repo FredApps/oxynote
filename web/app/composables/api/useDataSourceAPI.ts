@@ -442,6 +442,7 @@ export default function () {
 					q: params.q,
 					chartType: params.chartType,
 					...formatQueryTimeRange(params),
+					...formatQueryVariableValues(params.variableValues),
 				})
 
 				try {
@@ -505,7 +506,10 @@ export default function () {
 					return []
 				}
 
-				const timeRangeParams = formatQueryTimeRange(params)
+				const timeRangeParams = {
+					...formatQueryTimeRange(params),
+					...formatQueryVariableValues(params.variableValues),
+				}
 				const results = await Promise.all(
 					params.queries.map(async (q) => {
 						const queryParams = new URLSearchParams({

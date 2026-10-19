@@ -27,9 +27,7 @@ describe("variable-completion", () => {
 			])
 		})
 
-		it("puts the description above the current value", ({
-			expect,
-		}) => {
+		it("puts the description above the current value", ({ expect }) => {
 			const tree = variableTree()
 			const env = tree[0]?.variables[0]
 			if (!env) {

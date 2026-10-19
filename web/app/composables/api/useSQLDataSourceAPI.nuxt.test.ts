@@ -137,12 +137,13 @@ describe("useSQLDataSourceAPI", { concurrent: false }, () => {
 			params.value = { ...params.value, variableValues: { env: "dev" } }
 			await labels.refresh()
 
-			// a fresh answer per value, and the values never leave the client
+			// a fresh answer per value, each with its variable values
 			expect(calls).toHaveLength(2)
 			expect(calls[1]?.query).toEqual({
 				q: "SELECT * FROM metrics WHERE env = '$env'",
 				from: "2026-01-01T00:00:00.000Z",
 				to: "2026-01-02T00:00:00.000Z",
+				"var-env": "dev",
 			})
 		})
 	})

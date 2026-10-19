@@ -47,7 +47,7 @@ func (h *Handler) QueryDataSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	qq, err := h.substitute(r.Context(), session, query)
+	qq, err := h.substitute(r, session, query)
 	if err != nil {
 		httpserver.RespondError(h.log, w, err)
 		return

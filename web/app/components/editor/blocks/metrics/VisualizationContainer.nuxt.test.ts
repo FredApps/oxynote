@@ -1008,8 +1008,10 @@ describe("<VisualizationContainer>", { concurrent: false }, () => {
 			await vi.waitFor(() => {
 				expect(calls.length).toBeGreaterThan(asked)
 			}, WAIT_FOR_OPTIONS)
-			// the server substitutes the value, so the query goes out as written
+			// the query goes out as written, with the value beside it for the
+			// server to substitute
 			expect(calls.at(-1)?.query.q).toBe('up{env="$env"}')
+			expect(calls.at(-1)?.query["var-env"]).toBe("staging")
 		})
 
 		it("keeps its answer when a value it does not reference changes", async ({

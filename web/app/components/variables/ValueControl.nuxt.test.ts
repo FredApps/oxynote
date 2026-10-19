@@ -254,6 +254,15 @@ describe("<ValueControl>", { concurrent: false }, () => {
 		})
 	})
 
+	it("shows the key the queries reference beside the name", async ({
+		expect,
+	}) => {
+		const wrapper = await mountControl(textVariable())
+
+		expect(wrapper.text()).toContain("Release")
+		expect(wrapper.text()).toContain("($release)")
+	})
+
 	it("offers no reset while the user sees the default", async ({ expect }) => {
 		const wrapper = await mountControl(regionVariable({ value: OPTION_EU }))
 

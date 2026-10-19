@@ -929,6 +929,7 @@ func Test_Handler_substitute(t *testing.T) {
 
 	cc := map[string]struct {
 		Variables *VariableManagerMock
+		Target    string
 		Texts     []string
 		Result    []string
 		Err       error
@@ -951,6 +952,13 @@ func Test_Handler_substitute(t *testing.T) {
 			Result:    []string{"sum(up)", "up"},
 			Checks:    checks(wasVariableManagerFetchTreeCalled(1)),
 		},
+		"Successful substitution with an override": {
+			Variables: stubVariables(nil),
+			Target:    "http://test.com/?var-metric=down&var-other=x&q=$metric",
+			Texts:     []string{"sum($metric)", "$other"},
+			Result:    []string{"sum(down)", "$other"},
+			Checks:    checks(wasVariableManagerFetchTreeCalled(1)),
+		},
 	}
 
 	for cn, c := range cc {
@@ -959,7 +967,12 @@ func Test_Handler_substitute(t *testing.T) {
 
 			hdl, db, exec, vars, logs := prepHandler(nil, nil, c.Variables)
 
-			res, err := hdl.substitute(context.Background(), _testSession, c.Texts...)
+			target := c.Target
+			if target == "" {
+				target = "http://test.com/"
+			}
+
+			res, err := hdl.substitute(httptest.NewRequest(http.MethodGet, target, http.NoBody), _testSession, c.Texts...)
 
 			for _, ch := range c.Checks {
 				ch(t, db, exec, vars, httptest.NewRecorder(), logs)

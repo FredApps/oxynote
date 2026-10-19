@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	datasourceCore "github.com/oxynote/oxynote/server/core/internal/datasource"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/processor"
@@ -18,6 +19,10 @@ import (
 // ErrQueryRequired is returned when the request carries no query to run
 // against the data source.
 var ErrQueryRequired = errutil.New(http.StatusBadRequest, "query.required", "Query parameter is required.")
+
+// _variableQueryPrefix heads a query parameter that gives the variable
+// whose key follows it a value in place of the stored one.
+const _variableQueryPrefix = "var-"
 
 // Handler holds dependencies required for data source operations.
 type Handler struct {
@@ -246,18 +251,28 @@ func (h *Handler) persistDataSourceStatus(
 }
 
 // substitute returns the texts with the session user's variables
-// substituted. The tree is fetched only when a text references one.
-func (h *Handler) substitute(ctx context.Context, session auth.Session, texts ...string) ([]string, error) {
+// substituted. A var-<key> query parameter on the request replaces the
+// stored value of that variable. The tree is fetched only when a text
+// references one.
+func (h *Handler) substitute(r *http.Request, session auth.Session, texts ...string) ([]string, error) {
 	if !variable.HasReference(texts...) {
 		return texts, nil
 	}
 
-	vars, err := h.variables.FetchTree(ctx, session.ActiveOrganizationID, session.UserID)
+	vars, err := h.variables.FetchTree(r.Context(), session.ActiveOrganizationID, session.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	return vars.Substitute(texts...), nil
+	overrides := make(map[string]string)
+
+	for name, values := range r.URL.Query() {
+		if key, ok := strings.CutPrefix(name, _variableQueryPrefix); ok {
+			overrides[key] = values[0]
+		}
+	}
+
+	return vars.Substitute(overrides, texts...), nil
 }
 
 // DB is an interface that handles communication with the data source database.

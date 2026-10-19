@@ -130,12 +130,13 @@ describe("usePrometheusDataSourceAPI", { concurrent: false }, () => {
 			params.value = { ...params.value, variableValues: { env: "dev" } }
 			await lookup.refresh()
 
-			// a fresh answer per value, and the values never leave the client
+			// a fresh answer per value, each with its variable values
 			expect(calls).toHaveLength(2)
 			expect(calls[1]?.query).toEqual({
 				from: FROM,
 				to: TO,
 				matchers: 'up{env="$env"}',
+				"var-env": "dev",
 			})
 		})
 	})
@@ -229,12 +230,13 @@ describe("usePrometheusDataSourceAPI", { concurrent: false }, () => {
 			params.value = { ...params.value, variableValues: { env: "dev" } }
 			await lookup.refresh()
 
-			// a fresh answer per value, and the values never leave the client
+			// a fresh answer per value, each with its variable values
 			expect(calls).toHaveLength(2)
 			expect(calls[1]?.query).toEqual({
 				from: FROM,
 				to: TO,
 				matchers: 'up{env="$env"}',
+				"var-env": "dev",
 			})
 		})
 	})
@@ -306,12 +308,13 @@ describe("usePrometheusDataSourceAPI", { concurrent: false }, () => {
 			params.value = { ...params.value, variableValues: { env: "dev" } }
 			await lookup.refresh()
 
-			// a fresh answer per value, and the values never leave the client
+			// a fresh answer per value, each with its variable values
 			expect(calls).toHaveLength(2)
 			expect(calls[1]?.query).toEqual({
 				from: FROM,
 				to: TO,
 				matchers: 'up{env="$env"}',
+				"var-env": "dev",
 			})
 		})
 	})

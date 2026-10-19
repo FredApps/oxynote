@@ -16,6 +16,7 @@ import {
 	moveBefore,
 	optionLabel,
 	orderedGroups,
+	orderedOptions,
 	pageVariableKeys,
 	usedVariableIds,
 	variableMoveRequest,
@@ -232,6 +233,33 @@ describe("variables", () => {
 			expect(
 				optionLabel(makeVariable({ builtin: input.builtin }), input.value, t),
 			).toBe(expected)
+		})
+	})
+
+	describe("orderedOptions", () => {
+		const options = ["5m", "off", "1d", "5s", "30m"].map((value, i) => ({
+			id: `option-${value}`,
+			variableId: "variable",
+			value: value,
+			sortIndex: i,
+		}))
+
+		it("shows the built-in intervals in their own order", ({ expect }) => {
+			const variable = makeVariable({ builtin: true, options: options })
+
+			expect(orderedOptions(variable).map((o) => o.value)).toEqual([
+				"5s",
+				"5m",
+				"30m",
+				"1d",
+				"off",
+			])
+		})
+
+		it("keeps a user's options as stored", ({ expect }) => {
+			const variable = makeVariable({ builtin: false, options: options })
+
+			expect(orderedOptions(variable)).toEqual(options)
 		})
 	})
 

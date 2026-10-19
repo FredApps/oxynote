@@ -752,13 +752,14 @@ describe("useDataSourceAPI", { concurrent: false }, () => {
 			params.value = { ...params.value, variableValues: { env: "dev" } }
 			await query.refresh()
 
-			// a fresh answer per value, and the values never leave the client
+			// a fresh answer per value, each with its variable values
 			expect(queryCalls).toHaveLength(2)
 			expect(queryCalls[1]?.query).toEqual({
 				q: "up",
 				chartType: "line_chart",
 				from: "2026-01-01T00:00:00.000Z",
 				to: "2026-01-02T00:00:00.000Z",
+				"var-env": "dev",
 			})
 			expect(listCalls).toHaveLength(0)
 		})
@@ -871,13 +872,14 @@ describe("useDataSourceAPI", { concurrent: false }, () => {
 			params.value = { ...params.value, variableValues: { env: "dev" } }
 			await queries.refresh()
 
-			// a fresh answer per value, and the values never leave the client
+			// a fresh answer per value, each with its variable values
 			expect(queryCalls).toHaveLength(4)
 			expect(queryCalls[2]?.query).toEqual({
 				q: "up",
 				chartType: "line_chart",
 				from: "2026-01-01T00:00:00.000Z",
 				to: "2026-01-02T00:00:00.000Z",
+				"var-env": "dev",
 			})
 			expect(listCalls).toHaveLength(0)
 		})

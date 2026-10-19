@@ -728,7 +728,7 @@ func (i *input) SubstituteVariables(texts ...string) ([]string, error) {
 		return nil, err
 	}
 
-	return vars.Substitute(texts...), nil
+	return vars.Substitute(nil, texts...), nil
 }
 
 // FetchVariableGroup returns the variable group the id names, with its

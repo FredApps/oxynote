@@ -226,8 +226,8 @@ export function usePromQLQueryExtension(
 		enable,
 	)
 
-	// the server substitutes the variables in the matchers, so their values
-	// are part of what a lookup asks
+	// a lookup sends the values of the variables its matchers reference,
+	// for the server to substitute
 	function withVariableValues<T extends { matchers?: string[] }>(params: T): T {
 		return {
 			...params,

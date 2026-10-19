@@ -1,7 +1,13 @@
 <script lang="ts" setup>
 import type { VariableTreeElement } from "~/utils"
 import { showToastMessage } from "../toast"
-import { NO_AUTOFILL, isCustomValue, optionLabel } from "./variables"
+import {
+	NO_AUTOFILL,
+	isCustomValue,
+	optionLabel,
+	orderedOptions,
+	variableReference,
+} from "./variables"
 
 const SAVE_DEBOUNCE_MS = 500
 
@@ -16,6 +22,7 @@ const controlId = useId()
 const textDraft = ref("")
 const numberDraft = ref<number | undefined>(undefined)
 const custom = computed(() => isCustomValue(props.variable))
+const options = computed(() => orderedOptions(props.variable))
 // the default sits in the control as its placeholder, so an empty control
 // reads as "use the default"
 const placeholder = computed(() => {
@@ -107,12 +114,17 @@ function saveSelection(value: unknown) {
 <template>
 	<div class="flex flex-col gap-1 py-1 pr-2 pl-7">
 		<div class="flex h-4 items-center gap-2">
-			<ShadcnUiLabel
-				:for="controlId"
-				class="block min-w-0 flex-1 truncate text-2sm font-medium text-foreground"
-			>
-				{{ props.variable.name }}
-			</ShadcnUiLabel>
+			<div class="flex min-w-0 flex-1 items-baseline gap-1.5">
+				<ShadcnUiLabel
+					:for="controlId"
+					class="block min-w-0 truncate text-2sm leading-4 font-medium text-foreground"
+				>
+					{{ props.variable.name }}
+				</ShadcnUiLabel>
+				<span class="shrink-0 font-mono text-2xs text-muted-foreground">
+					({{ variableReference(props.variable.key) }})
+				</span>
+			</div>
 			<ShadcnUiButton
 				v-if="custom"
 				variant="ghost-plain"
@@ -143,7 +155,7 @@ function saveSelection(value: unknown) {
 				inside-sheet
 			>
 				<ShadcnUiSelectItem
-					v-for="option in props.variable.options"
+					v-for="option in options"
 					:key="option.id"
 					:value="option.id"
 					class="text-2sm"

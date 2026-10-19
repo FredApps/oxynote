@@ -220,8 +220,8 @@ func (c *Checker) checkMetricActive(
 			return false
 		}
 
-		queries = vars.Substitute(queries...)
-		timeRange = vars.Substitute(timeRange)[0]
+		queries = vars.Substitute(nil, queries...)
+		timeRange = vars.Substitute(nil, timeRange)[0]
 	}
 
 	now := timeutil.Now()

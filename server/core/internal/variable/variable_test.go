@@ -665,8 +665,9 @@ func Test_Tree_Substitute(t *testing.T) {
 	}
 
 	cc := map[string]struct {
-		Texts  []string
-		Result []string
+		Overrides map[string]string
+		Texts     []string
+		Result    []string
 	}{
 		"No texts": {
 			Result: []string{},
@@ -719,13 +720,23 @@ func Test_Tree_Substitute(t *testing.T) {
 			Texts:  []string{"${env} [[env]] ${env:sqlstring} $"},
 			Result: []string{"${env} [[env]] ${env:sqlstring} $"},
 		},
+		"Overridden value": {
+			Overrides: map[string]string{"step": "30s", "env": "dev"},
+			Texts:     []string{"$step $env $metric_range"},
+			Result:    []string{"30s dev last_24_hours"},
+		},
+		"Override for no variable": {
+			Overrides: map[string]string{"other": "x"},
+			Texts:     []string{"$other"},
+			Result:    []string{"$other"},
+		},
 	}
 
 	for cn, c := range cc {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			assert.Equal(t, c.Result, tree.Substitute(c.Texts...))
+			assert.Equal(t, c.Result, tree.Substitute(c.Overrides, c.Texts...))
 		})
 	}
 }

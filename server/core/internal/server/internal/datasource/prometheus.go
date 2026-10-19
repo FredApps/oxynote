@@ -70,7 +70,7 @@ func (h *Handler) FetchPrometheusDataSourceLabelNames(w http.ResponseWriter, r *
 		return
 	}
 
-	matchers, err := h.substitute(r.Context(), session, r.URL.Query()[_prometheusMatchersQuery]...)
+	matchers, err := h.substitute(r, session, r.URL.Query()[_prometheusMatchersQuery]...)
 	if err != nil {
 		httpserver.RespondError(h.log, w, err)
 		return
@@ -122,7 +122,7 @@ func (h *Handler) FetchPrometheusDataSourceLabelValues(w http.ResponseWriter, r 
 		return
 	}
 
-	matchers, err := h.substitute(r.Context(), session, r.URL.Query()[_prometheusMatchersQuery]...)
+	matchers, err := h.substitute(r, session, r.URL.Query()[_prometheusMatchersQuery]...)
 	if err != nil {
 		httpserver.RespondError(h.log, w, err)
 		return
@@ -168,7 +168,7 @@ func (h *Handler) FetchPrometheusDataSourceSeries(w http.ResponseWriter, r *http
 		return
 	}
 
-	matchers, err := h.substitute(r.Context(), session, r.URL.Query()[_prometheusMatchersQuery]...)
+	matchers, err := h.substitute(r, session, r.URL.Query()[_prometheusMatchersQuery]...)
 	if err != nil {
 		httpserver.RespondError(h.log, w, err)
 		return

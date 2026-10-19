@@ -99,7 +99,10 @@ export default function () {
 					return null
 				}
 
-				const queryParams = new URLSearchParams(formatQueryTimeRange(params))
+				const queryParams = new URLSearchParams({
+					...formatQueryTimeRange(params),
+					...formatQueryVariableValues(params.variableValues),
+				})
 
 				for (const matcher of params.matchers) {
 					queryParams.append("matchers", matcher)
@@ -149,7 +152,10 @@ export default function () {
 					return null
 				}
 
-				const queryParams = new URLSearchParams(formatQueryTimeRange(params))
+				const queryParams = new URLSearchParams({
+					...formatQueryTimeRange(params),
+					...formatQueryVariableValues(params.variableValues),
+				})
 
 				if (params.matchers?.length) {
 					for (const matcher of params.matchers) {
@@ -211,7 +217,10 @@ export default function () {
 					return null
 				}
 
-				const queryParams = new URLSearchParams(formatQueryTimeRange(params))
+				const queryParams = new URLSearchParams({
+					...formatQueryTimeRange(params),
+					...formatQueryVariableValues(params.variableValues),
+				})
 
 				for (const matcher of params.matchers) {
 					queryParams.append("matchers", matcher)

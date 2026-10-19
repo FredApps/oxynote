@@ -584,6 +584,42 @@ describe("useVariableAPI", { concurrent: false }, () => {
 			expect.soft(treeCalls).toHaveLength(1)
 		})
 
+		it("refreshes the tree only after the last value save in flight", async ({
+			expect,
+		}) => {
+			const treeCalls = mockTree()
+			const listPut = mockDeferredEndpoint(
+				"PUT",
+				`/api/variables/${VAR_LIST}/value`,
+			)
+			const textPut = mockDeferredEndpoint(
+				"PUT",
+				`/api/variables/${VAR_TEXT}/value`,
+			)
+			const listSave = makeVariableAPI().setVariableValue.mutateAsync({
+				id: VAR_LIST,
+				req: { value: OPTION_A },
+			})
+			const textSave = makeVariableAPI().setVariableValue.mutateAsync({
+				id: VAR_TEXT,
+				req: { value: "us-east-1" },
+			})
+			await Promise.all([listPut.reached, textPut.reached])
+
+			listPut.resolve(null)
+			await listSave
+			await flushPromises()
+
+			expect.soft(treeCalls).toHaveLength(0)
+			expect.soft(findVariable(readTree(), VAR_TEXT)?.value).toBe("us-east-1")
+
+			textPut.resolve(null)
+			await textSave
+			await flushPromises()
+
+			expect.soft(treeCalls).toHaveLength(1)
+		})
+
 		it("rejects without a request when the variable is not in the tree", async ({
 			expect,
 		}) => {

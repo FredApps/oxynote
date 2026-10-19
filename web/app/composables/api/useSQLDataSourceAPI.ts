@@ -66,6 +66,7 @@ export default function () {
 				const queryParams = new URLSearchParams({
 					q: params.q,
 					...formatQueryTimeRange(params),
+					...formatQueryVariableValues(params.variableValues),
 				})
 
 				return await $coreAPIClient<SQLLabelsResult>(

@@ -184,6 +184,27 @@ export function optionLabel(
 	return t(`general.refresh-interval-options.${interval}`)
 }
 
+// orderedOptions lists a list's options as the select shows them. The
+// built-in refresh interval stores its default first, because a list's
+// default is its first option, but it shows its intervals in their own
+// order, shortest first.
+export function orderedOptions(
+	variable: VariableTreeElement,
+): VariableTreeElement["options"] {
+	if (!variable.builtin) {
+		return variable.options
+	}
+
+	const intervals: string[] = Object.values(RefreshInterval)
+	const rank = (value: string) => {
+		const index = intervals.indexOf(value)
+
+		return index === -1 ? intervals.length : index
+	}
+
+	return variable.options.toSorted((a, b) => rank(a.value) - rank(b.value))
+}
+
 // isCustomValue tells whether the user's value strays from the default,
 // which is what offers them a reset
 export function isCustomValue(variable: VariableTreeElement): boolean {

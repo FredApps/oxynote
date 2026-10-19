@@ -17,6 +17,10 @@ export const VARIABLE_QUERY_KEYS = {
 	tree: ["variables", "tree"] as const,
 }
 
+const VARIABLE_MUTATION_KEYS = {
+	value: ["variables", "value"] as const,
+}
+
 const VARIABLE_PATHS = {
 	variables: "/api/variables",
 	tree: "/api/variables/tree",
@@ -31,6 +35,7 @@ const VARIABLE_PATHS = {
 export default function () {
 	const { $coreAPIClient } = useNuxtApp()
 	const queryCache = useQueryCache()
+	const mutationCache = useMutationCache()
 	const { fetchAuthSession, fetchOrganization } = useAuthSession()
 
 	const fetchVariables = useQuery({
@@ -322,6 +327,7 @@ export default function () {
 	})
 
 	const setVariableValue = useMutation({
+		key: VARIABLE_MUTATION_KEYS.value,
 		onMutate({ id, req }: { id: string; req: VariableValueRequest }) {
 			if (!isXid(id)) {
 				// optimisticInserts use nanoid
@@ -361,7 +367,7 @@ export default function () {
 				return
 			}
 
-			await queryCache.invalidateQueries({ key: VARIABLE_QUERY_KEYS.tree })
+			await invalidateTreeAfterValueSave()
 		},
 		onError(_err, _req, { oldTree, newTree }) {
 			rollbackTree(oldTree, newTree)
@@ -369,6 +375,7 @@ export default function () {
 	})
 
 	const resetVariableValue = useMutation({
+		key: VARIABLE_MUTATION_KEYS.value,
 		onMutate(id: string) {
 			if (!isXid(id)) {
 				// optimisticInserts use nanoid
@@ -401,7 +408,7 @@ export default function () {
 				return
 			}
 
-			await queryCache.invalidateQueries({ key: VARIABLE_QUERY_KEYS.tree })
+			await invalidateTreeAfterValueSave()
 		},
 		onError(_err, _id, { oldTree, newTree }) {
 			rollbackTree(oldTree, newTree)
@@ -575,6 +582,21 @@ export default function () {
 			rollbackTree(oldTree, newTree)
 		},
 	})
+
+	// invalidateTreeAfterValueSave refetches the tree once the last value
+	// save in flight is done. An earlier refetch could return a value that
+	// a later save is still replacing, and the sidebar would jump back to it.
+	async function invalidateTreeAfterValueSave() {
+		const saving = mutationCache.getEntries({
+			key: VARIABLE_MUTATION_KEYS.value,
+			predicate: (entry) => entry.asyncStatus.value === "loading",
+		})
+		if (saving.length > 1) {
+			return
+		}
+
+		await queryCache.invalidateQueries({ key: VARIABLE_QUERY_KEYS.tree })
+	}
 
 	// editTree caches the edited copy of the tree and returns it with the
 	// tree it replaced, for a rollback
