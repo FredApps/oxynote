@@ -7,7 +7,7 @@ import {
 	disposeMockEndpoints,
 	mockEndpoint,
 } from "~/composables/api/test-helpers"
-import { Select } from "../shadcn/ui/select"
+import { Select } from "#layers/ui/app/components/shadcn/ui/select"
 import {
 	WAIT_FOR_OPTIONS,
 	emitFrom,

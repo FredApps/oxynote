@@ -1,3 +1,9 @@
+# the ui layer is its own package so projects outside this repository can
+# install it with its dependencies.
+packages:
+  - "."
+  - "layers/*"
+
 # Electron Forge's packaging toolchain expects a flat, npm-style node_modules
 # layout on disk.
 # https://www.electronjs.org/docs/latest/tutorial/tutorial-first-app#initializing-your-npm-project

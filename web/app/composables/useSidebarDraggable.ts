@@ -1,7 +1,7 @@
 import type { Position } from "@vueuse/core"
 import type { CSSProperties } from "vue"
 import type { SidebarItem } from "~/components/sidebar"
-import { cn } from "~/lib/utils"
+import { cn } from "#layers/ui/app/lib/utils"
 
 export interface SidebarDraggableOptions {
 	disabled?: MaybeRefOrGetter<boolean>

@@ -9,8 +9,8 @@ import type {
 	VariableType,
 } from "~/utils"
 // for some reason this isn't auto imported
-import { FormField as ShadcnUiFormField } from "@/components/shadcn/ui/form"
-import { cn } from "~/lib/utils"
+import { FormField as ShadcnUiFormField } from "#layers/ui/app/components/shadcn/ui/form"
+import { cn } from "#layers/ui/app/lib/utils"
 import { showToastMessage } from "../toast"
 import {
 	DEFAULT_TIME_RANGE,

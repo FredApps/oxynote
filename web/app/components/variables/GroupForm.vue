@@ -5,7 +5,7 @@ import * as z from "zod"
 import type { VariableGroupTreeElement, VariableTreeResponse } from "~/utils"
 import { chartStyles, colorToHex } from "~/assets/css"
 // for some reason this isn't auto imported
-import { FormField as ShadcnUiFormField } from "@/components/shadcn/ui/form"
+import { FormField as ShadcnUiFormField } from "#layers/ui/app/components/shadcn/ui/form"
 import { showToastMessage } from "../toast"
 import { useGroupOpenState } from "./group-state"
 import { NO_AUTOFILL } from "./variables"

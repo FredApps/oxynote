@@ -1,6 +1,9 @@
 <script lang="ts" setup>
-import { cn } from "~/lib/utils"
-import { useSidebar, useSidebarWidth } from "./shadcn/ui/sidebar"
+import { cn } from "#layers/ui/app/lib/utils"
+import {
+	useSidebar,
+	useSidebarWidth,
+} from "#layers/ui/app/components/shadcn/ui/sidebar"
 
 const props = defineProps<{
 	title: string

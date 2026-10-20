@@ -7,7 +7,7 @@ import {
 	disposeMockEndpoints,
 	mockEndpoint,
 } from "~/composables/api/test-helpers"
-import { Select, SelectValue } from "../shadcn/ui/select"
+import { Select, SelectValue } from "#layers/ui/app/components/shadcn/ui/select"
 import { emitFrom, raisedToasts, settleMutations, t } from "../test-helpers"
 import TimeRangeSelect from "./TimeRangeSelect.vue"
 import ValueControl from "./ValueControl.vue"

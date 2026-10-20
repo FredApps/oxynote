@@ -13,9 +13,9 @@ import {
 	seedQueryData,
 	type RecordedCall,
 } from "~/composables/api/test-helpers"
-import { Dialog } from "./shadcn/ui/dialog"
-import { SidebarProvider } from "./shadcn/ui/sidebar"
-import { TooltipProvider } from "./shadcn/ui/tooltip"
+import { Dialog } from "#layers/ui/app/components/shadcn/ui/dialog"
+import { SidebarProvider } from "#layers/ui/app/components/shadcn/ui/sidebar"
+import { TooltipProvider } from "#layers/ui/app/components/shadcn/ui/tooltip"
 
 // eslint's ts program resolves .vue imports as error typed, so a component
 // handed to one of these helpers looks unsafe to it while vue-tsc types it

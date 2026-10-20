@@ -11,7 +11,7 @@ import {
 } from "@codemirror/autocomplete"
 import { type EditorView, keymap, tooltips } from "@codemirror/view"
 import { minimalSetup } from "codemirror"
-import { cn } from "~/lib/utils"
+import { cn } from "#layers/ui/app/lib/utils"
 import {
 	codemirrorTheme,
 	trimEditorWhitespace,

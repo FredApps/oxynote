@@ -34,6 +34,7 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 # because the root prepare builds the promql grammar and runs nuxt prepare,
 # and neither has its sources yet.
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+COPY web/layers/ui/package.json ./layers/ui/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY web/ .

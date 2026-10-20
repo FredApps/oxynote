@@ -41,7 +41,7 @@ import {
 	DIFF_TEXT_ADDED_MARK_NAME,
 	DIFF_TEXT_REMOVED_MARK_NAME,
 } from "~/components/editor/mark-names"
-import { cn } from "~/lib/utils"
+import { cn } from "#layers/ui/app/lib/utils"
 
 export interface UseDiffEditorOptions {
 	/** debounce interval in ms (default: 250) */

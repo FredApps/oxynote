@@ -5,7 +5,7 @@ import {
 	type SidebarItem,
 	type SidebarItemAction,
 } from "./sidebar"
-import { cn } from "@/lib/utils"
+import { cn } from "#layers/ui/app/lib/utils"
 
 const props = defineProps<{
 	parentId: string | null

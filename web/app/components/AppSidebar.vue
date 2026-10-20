@@ -10,7 +10,7 @@ import {
 } from "./sidebar"
 import SidebarNestedGroup from "./SidebarNestedGroup.vue"
 import { showToastMessage } from "./toast"
-import { useSidebar } from "./shadcn/ui/sidebar"
+import { useSidebar } from "#layers/ui/app/components/shadcn/ui/sidebar"
 
 const props = defineProps<{
 	allInitialSectionsLoaded: boolean
