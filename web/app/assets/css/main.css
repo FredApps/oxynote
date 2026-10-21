@@ -3,9 +3,7 @@
 
 :root {
 	--background-warning: oklch(0.2485 0.0617 0);
-	--background-translucent: oklch(99.405% 0.00011 271.152 / 0.93);
 	--muted-50-real: oklch(0.9821 0 0); /* 50% opacity without the opacity */
-	--muted-highlight: oklch(0.95 0 0);
 	--muted-foreground-50: oklch(55.553% 0.00006 271.152 / 0.5);
 	--muted-foreground-7: oklch(55.553% 0.00006 271.152 / 0.07);
 
@@ -152,10 +150,8 @@
 }
 
 .dark {
-	--background-translucent: oklch(18.22% 0.00002 271.152 / 0.93);
 	--background-warning: oklch(0.5757 0.2009 11.12);
 	--muted-50-real: oklch(0.1591 0 0); /* 50% opacity without the opacity */
-	--muted-highlight: oklch(0.1798 0 0);
 	--muted-foreground-50: oklch(70.9% 0.00008 271.152 / 0.5);
 	--muted-foreground-7: oklch(70.9% 0.00008 271.152 / 0.07);
 
@@ -198,15 +194,12 @@
 
 /* defaults: https://tailwindcss.com/docs/theme#default-theme-variable-reference */
 @theme {
-	--shadow-fully-clear: 0rem 0.3125rem 1.25rem 0rem rgba(0, 0, 0, 0.15);
-
 	/* note that we also use these values as theme(zIndex.modal) */
 	--z-index-base: 0;
 	--z-index-editor-overlay: 0; /* for things inside the editor but under content */
 	--z-index-editor-diff-overlay: -1;
 	--z-index-editor-content: 5;
 	--z-index-editor-comment-indicators: 25; /* needs to be higher than navbar and drag handle */
-	--z-index-navbar: 10;
 	--z-index-popover-dropdown: 30;
 	--z-index-toast: 500;
 	--z-index-draggable: 500;
@@ -214,10 +207,8 @@
 }
 
 @theme inline {
-	--color-background-translucent: var(--background-translucent);
 	--color-background-warning: var(--background-warning);
 	--color-muted-50-real: var(--muted-50-real);
-	--color-muted-highlight: var(--muted-highlight);
 
 	--color-status-info: var(--status-info);
 	--color-status-success: var(--status-success);

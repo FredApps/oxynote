@@ -137,7 +137,8 @@ render). vee-validate uses its own messages (see [README.md](README.md)).
   `@vueuse/nuxt` itself. App state, such as the sidebar's persisted open
   state, comes in through props or `v-model`. It is a workspace package: a
   dependency it uses goes in its own `package.json`.
-  Tailwind v4: tokens the components use in
+  Tailwind v4: tokens the components use, and tokens other projects share
+  with the app, in
   [layers/ui/app/assets/css/ui.css](layers/ui/app/assets/css/ui.css), the
   app's own in [app/assets/css/main.css](app/assets/css/main.css), which
   imports `ui.css`.
