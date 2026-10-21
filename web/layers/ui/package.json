@@ -4,14 +4,16 @@
 	"type": "module",
 	"main": "./nuxt.config.ts",
 	"peerDependencies": {
-		"nuxt": "^4.5.2"
+		"nuxt": "^4.6.1"
 	},
 	"dependencies": {
 		"@iconify-json/lucide": "^1.2.129",
-		"@nuxt/fonts": "^0.14.0",
+		"@nuxt/fonts": "^1.0.1",
 		"@nuxt/icon": "^2.5.1",
+		"@tailwindcss/typography": "^0.5.20",
 		"@tailwindcss/vite": "^4.3.3",
-		"@vueuse/core": "^14.4.0",
+		"@vueuse/core": "^15.0.0",
+		"@vueuse/nuxt": "^15.0.0",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"reka-ui": "^2.10.4",

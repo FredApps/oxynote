@@ -123,6 +123,7 @@ const { fetchOrganization } = useAuthSession()
 const { t } = useI18n({ useScope: "global" })
 const { isAssistantEnabled } = useCapabilitiesAPI()
 const wsState = useWebSocketStateStore()
+const sidebarOpen = useSidebarOpenState()
 let unsubWsDocMetadataChange: (() => void) | null | undefined = null
 
 // we use this to track whether all sections have loaded their initial data
@@ -768,7 +769,7 @@ function clearLinkedBlock() {
 }
 </script>
 <template>
-	<ShadcnUiSidebarProvider>
+	<ShadcnUiSidebarProvider v-model:open="sidebarOpen">
 		<ShadcnUiTooltipProvider>
 			<AppSidebar
 				:all-initial-sections-loaded="allSectionsLoaded"

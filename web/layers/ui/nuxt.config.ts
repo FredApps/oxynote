@@ -23,7 +23,7 @@ export default defineNuxtConfig({
 		},
 	},
 
-	modules: ["@nuxt/fonts", "@nuxt/icon", "shadcn-nuxt"],
+	modules: ["@nuxt/fonts", "@nuxt/icon", "@vueuse/nuxt", "shadcn-nuxt"],
 
 	fonts: {
 		defaults: {

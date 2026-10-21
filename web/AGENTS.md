@@ -132,8 +132,11 @@ render). vee-validate uses its own messages (see [README.md](README.md)).
 - shadcn-vue components live in the `ui` layer,
   [layers/ui/](layers/ui/), prefix `ShadcnUi`, imported as `#layers/ui/...`.
   Other projects may extend it, so it never imports app code
-  (`@/`, `~/`) and uses no i18n (text comes in as props). It is a
-  workspace package: a dependency it uses goes in its own `package.json`.
+  (`@/`, `~/`) and uses no i18n (text comes in as props). It relies only
+  on the auto-imports of Nuxt, Vue and vueuse. The layer registers
+  `@vueuse/nuxt` itself. App state, such as the sidebar's persisted open
+  state, comes in through props or `v-model`. It is a workspace package: a
+  dependency it uses goes in its own `package.json`.
   Tailwind v4: tokens the components use in
   [layers/ui/app/assets/css/ui.css](layers/ui/app/assets/css/ui.css), the
   app's own in [app/assets/css/main.css](app/assets/css/main.css), which

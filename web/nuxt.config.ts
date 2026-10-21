@@ -67,7 +67,6 @@ export default defineNuxtConfig({
 	modules: [
 		"@nuxt/eslint",
 		"@nuxt/icon",
-		"@vueuse/nuxt",
 		"@nuxtjs/i18n",
 		"@pinia/nuxt",
 		"@pinia/colada-nuxt",

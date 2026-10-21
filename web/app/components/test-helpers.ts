@@ -133,10 +133,25 @@ export function mountUnderSidebarProvider(
 		stubs?: Record<string, boolean>
 	} = {},
 ) {
-	return mountSuspended(SidebarProvider, {
-		slots: {
-			default: () => h(component, options.props, options.slots),
-		},
+	// the provider is bound to the persisted open state, as on the page, so
+	// seedPersistentState decides whether the sidebar starts open
+	const host = defineComponent(() => {
+		const open = useSidebarOpenState()
+
+		return () =>
+			h(
+				SidebarProvider,
+				{
+					open: open.value,
+					"onUpdate:open": (value: boolean) => {
+						open.value = value
+					},
+				},
+				{ default: () => h(component, options.props, options.slots) },
+			)
+	})
+
+	return mountSuspended(host, {
 		global: { stubs: options.stubs },
 	})
 }

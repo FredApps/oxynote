@@ -32,22 +32,27 @@ const emits = defineEmits<{
 const isMobile = useMediaQuery(`(max-width: ${SIDEBAR_MOBILE_BREAKPOINT}px)`)
 const openMobile = ref(false)
 
-const persistedOpen = usePersistentState<boolean>({
-	key: SIDEBAR_COOKIE_NAME,
-	defaultValue: props.defaultOpen,
-	cookie: {
-		maxAge: SIDEBAR_COOKIE_MAX_AGE,
-	},
-})
+// an app that stores the open state itself binds it with v-model:open.
+// Without it, the state is kept in a cookie.
+const persistedOpen =
+	props.open === undefined
+		? useCookie<boolean>(SIDEBAR_COOKIE_NAME, {
+				default: () => props.defaultOpen,
+				maxAge: SIDEBAR_COOKIE_MAX_AGE,
+			})
+		: undefined
 
 const open = useVModel(props, "open", emits, {
-	defaultValue: persistedOpen.value,
+	defaultValue: persistedOpen?.value ?? props.defaultOpen,
 	passive: (props.open === undefined) as false,
 }) as Ref<boolean>
 
 function setOpen(value: boolean) {
 	open.value = value // emits('update:open', value)
-	persistedOpen.value = value
+
+	if (persistedOpen) {
+		persistedOpen.value = value
+	}
 }
 
 function setOpenMobile(value: boolean) {
