@@ -86,6 +86,19 @@ func Test_searchDocuments_Execute(t *testing.T) {
 	docID, branchID, mainID := xid.New(), xid.New(), xid.New()
 
 	branchFields := `"branch_id":"` + branchID.String() + `","branch_name":"draft","default":false,`
+	knownFields := branchFields + `"protected":false,`
+
+	// the draft takes writes; the main branch is protected.
+	stubBranches := func() *DBMock {
+		return &DBMock{
+			FetchDocumentBranchesByOrganizationIDFunc: func(context.Context, string) ([]document.BranchSummary, error) {
+				return []document.BranchSummary{
+					{BranchID: mainID, DocumentID: docID, BranchName: "main", DocumentName: "Runbook", Default: true, Protected: true},
+					{BranchID: branchID, DocumentID: docID, BranchName: "draft", DocumentName: "Runbook draft"},
+				}, nil
+			},
+		}
+	}
 	hit := `"hits":[{"block_uid":"b1","text":"rate limiting"}]`
 
 	hitSearcher := func() *SearcherMock {
@@ -163,30 +176,46 @@ func Test_searchDocuments_Execute(t *testing.T) {
 			Searches: 1,
 			Fetches:  0,
 		},
-		"Names are joined in": {
+		// the document goes by its default branch's name, and the hit's
+		// branch says whether it takes writes.
+		"Names and protection are joined in": {
 			Searcher: hitSearcher(),
-			DB: &DBMock{
-				FetchDocumentTreeFunc: func(context.Context, string) (document.Summaries, error) {
-					return document.Summaries{{ID: docID, DocumentName: "Runbook"}}, nil
-				},
-			},
+			DB:       stubBranches(),
 			Args:     `{"query":"rate limit"}`,
 			Limit:    _searchLimitDefault,
-			Result:   `{"documents":[{"document_id":"` + docID.String() + `","document_name":"Runbook",` + branchFields + hit + `}]}`,
+			Result:   `{"documents":[{"document_id":"` + docID.String() + `","document_name":"Runbook",` + knownFields + hit + `}]}`,
 			Searches: 1,
 			Fetches:  1,
 		},
-		"Error returned by db.FetchDocumentTree": {
+		"Error returned by db.FetchDocumentBranchesByOrganizationID": {
 			Searcher: hitSearcher(),
 			DB: &DBMock{
-				FetchDocumentTreeFunc: func(context.Context, string) (document.Summaries, error) {
+				FetchDocumentBranchesByOrganizationIDFunc: func(context.Context, string) ([]document.BranchSummary, error) {
 					return nil, assert.AnError
 				},
 			},
 			Args:     `{"query":"rate limit"}`,
 			Limit:    _searchLimitDefault,
 			Result:   `{"documents":[{"document_id":"` + docID.String() + `",` + branchFields + hit + `}]}`,
-			Logged:   "cannot fetch the document tree for search hit names",
+			Logged:   "cannot fetch the branches for search hits",
+			Searches: 1,
+			Fetches:  1,
+		},
+		// the name's entry is a flag on its branch, never a hit, so a
+		// title-only match lists no hits.
+		"Title match is flagged": {
+			Searcher: &SearcherMock{
+				SearchDocumentBlocksFunc: func(context.Context, string, string, int) ([]search.Block, error) {
+					return []search.Block{
+						{DocumentID: docID, BranchID: mainID, BranchName: "main", BranchDefault: true, ID: mainID.String() + "-docname", Type: "document", Text: "Runbook"},
+					}, nil
+				},
+			},
+			DB:    stubBranches(),
+			Args:  `{"query":"runbook"}`,
+			Limit: _searchLimitDefault,
+			Result: `{"documents":[{"document_id":"` + docID.String() + `","document_name":"Runbook","branch_id":"` + mainID.String() + `",` +
+				`"branch_name":"main","default":true,"protected":true,"title_match":true,"hits":[]}]}`,
 			Searches: 1,
 			Fetches:  1,
 		},
@@ -253,7 +282,7 @@ func Test_searchDocuments_Execute(t *testing.T) {
 			res, err := searchDocuments{}.Execute(d.newInput(context.Background(), NameSearchDocuments, json.RawMessage(c.Args)))
 			testutil.AssertEqualError(t, c.Err, err)
 			assert.Len(t, c.Searcher.SearchDocumentBlocksCalls(), c.Searches)
-			assert.Len(t, c.DB.FetchDocumentTreeCalls(), c.Fetches)
+			assert.Len(t, c.DB.FetchDocumentBranchesByOrganizationIDCalls(), c.Fetches)
 
 			if err != nil {
 				return

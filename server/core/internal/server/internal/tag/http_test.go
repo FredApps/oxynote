@@ -683,6 +683,7 @@ func Test_Handler_AssignBranchTag(t *testing.T) {
 		Payload    string
 		Code       int
 		Body       string
+		Fetches    int
 		Assigns    int
 		Notifies   int
 	}{
@@ -719,8 +720,27 @@ func Test_Handler_AssignBranchTag(t *testing.T) {
 			Code:       http.StatusBadRequest,
 			Body:       `{"code":"request.invalid_json","message":"invalid JSON body"}`,
 		},
+		"Error returned by DB.FetchDocumentByBranchID": {
+			DB:         &DBMock{FetchDocumentByBranchIDFunc: stubBranch(false, assert.AnError)},
+			DocumentID: _documentID.String(),
+			BranchID:   _branchID.String(),
+			Payload:    `{"tagId":"` + _tagID.String() + `"}`,
+			Code:       http.StatusInternalServerError,
+			Body:       `{"code":"general","message":"internal server error"}`,
+			Fetches:    1,
+		},
+		"Protected branch is refused": {
+			DB:         &DBMock{FetchDocumentByBranchIDFunc: stubBranch(true, nil)},
+			DocumentID: _documentID.String(),
+			BranchID:   _branchID.String(),
+			Payload:    `{"tagId":"` + _tagID.String() + `"}`,
+			Code:       http.StatusForbidden,
+			Body:       `{"code":"document.branch_protected","message":"a protected branch cannot be changed"}`,
+			Fetches:    1,
+		},
 		"Error returned by DB.AssignBranchTag": {
 			DB: &DBMock{
+				FetchDocumentByBranchIDFunc: stubBranch(false, nil),
 				AssignBranchTagFunc: func(context.Context, string, xid.ID, xid.ID, xid.ID) error {
 					return assert.AnError
 				},
@@ -730,14 +750,16 @@ func Test_Handler_AssignBranchTag(t *testing.T) {
 			Payload:    `{"tagId":"` + _tagID.String() + `"}`,
 			Code:       http.StatusInternalServerError,
 			Body:       `{"code":"general","message":"internal server error"}`,
+			Fetches:    1,
 			Assigns:    1,
 		},
 		"Successful assignment": {
-			DB:         &DBMock{},
+			DB:         &DBMock{FetchDocumentByBranchIDFunc: stubBranch(false, nil)},
 			DocumentID: _documentID.String(),
 			BranchID:   _branchID.String(),
 			Payload:    `{"tagId":"` + _tagID.String() + `"}`,
 			Code:       http.StatusNoContent,
+			Fetches:    1,
 			Assigns:    1,
 			Notifies:   1,
 		},
@@ -768,6 +790,7 @@ func Test_Handler_AssignBranchTag(t *testing.T) {
 			hdl.AssignBranchTag(rec, req.WithContext(ctx))
 
 			assert.Equal(t, c.Code, rec.Code)
+			assert.Len(t, c.DB.FetchDocumentByBranchIDCalls(), c.Fetches)
 			assert.Len(t, c.DB.AssignBranchTagCalls(), c.Assigns)
 			assert.Len(t, tpc.PublishManyCalls(), c.Notifies)
 			assert.Len(t, branchTpc.PublishManyCalls(), c.Notifies)
@@ -799,6 +822,7 @@ func Test_Handler_UnassignBranchTag(t *testing.T) {
 		TagID      string
 		Code       int
 		Body       string
+		Fetches    int
 		Unassigns  int
 		Notifies   int
 	}{
@@ -835,8 +859,27 @@ func Test_Handler_UnassignBranchTag(t *testing.T) {
 			Code:       http.StatusNotFound,
 			Body:       `{"code":"general","message":"not found"}`,
 		},
+		"Error returned by DB.FetchDocumentByBranchID": {
+			DB:         &DBMock{FetchDocumentByBranchIDFunc: stubBranch(false, assert.AnError)},
+			DocumentID: _documentID.String(),
+			BranchID:   _branchID.String(),
+			TagID:      _tagID.String(),
+			Code:       http.StatusInternalServerError,
+			Body:       `{"code":"general","message":"internal server error"}`,
+			Fetches:    1,
+		},
+		"Protected branch is refused": {
+			DB:         &DBMock{FetchDocumentByBranchIDFunc: stubBranch(true, nil)},
+			DocumentID: _documentID.String(),
+			BranchID:   _branchID.String(),
+			TagID:      _tagID.String(),
+			Code:       http.StatusForbidden,
+			Body:       `{"code":"document.branch_protected","message":"a protected branch cannot be changed"}`,
+			Fetches:    1,
+		},
 		"Error returned by DB.UnassignBranchTag": {
 			DB: &DBMock{
+				FetchDocumentByBranchIDFunc: stubBranch(false, nil),
 				UnassignBranchTagFunc: func(context.Context, string, xid.ID, xid.ID, xid.ID) error {
 					return assert.AnError
 				},
@@ -846,14 +889,16 @@ func Test_Handler_UnassignBranchTag(t *testing.T) {
 			TagID:      _tagID.String(),
 			Code:       http.StatusInternalServerError,
 			Body:       `{"code":"general","message":"internal server error"}`,
+			Fetches:    1,
 			Unassigns:  1,
 		},
 		"Successful unassignment": {
-			DB:         &DBMock{},
+			DB:         &DBMock{FetchDocumentByBranchIDFunc: stubBranch(false, nil)},
 			DocumentID: _documentID.String(),
 			BranchID:   _branchID.String(),
 			TagID:      _tagID.String(),
 			Code:       http.StatusNoContent,
+			Fetches:    1,
 			Unassigns:  1,
 			Notifies:   1,
 		},
@@ -885,6 +930,7 @@ func Test_Handler_UnassignBranchTag(t *testing.T) {
 			hdl.UnassignBranchTag(rec, req.WithContext(ctx))
 
 			assert.Equal(t, c.Code, rec.Code)
+			assert.Len(t, c.DB.FetchDocumentByBranchIDCalls(), c.Fetches)
 			assert.Len(t, c.DB.UnassignBranchTagCalls(), c.Unassigns)
 			assert.Len(t, tpc.PublishManyCalls(), c.Notifies)
 			assert.Len(t, branchTpc.PublishManyCalls(), c.Notifies)
@@ -951,5 +997,17 @@ func Test_extractBranchPath(t *testing.T) {
 			assert.Equal(t, c.ResultDocumentID, documentID)
 			assert.Equal(t, c.ResultBranchID, branchID)
 		})
+	}
+}
+
+// stubBranch returns a DB.FetchDocumentByBranchID that finds a branch,
+// protected or not, or fails with err.
+func stubBranch(protected bool, err error) func(context.Context, xid.ID, string) (*documentCore.Document, error) {
+	return func(context.Context, xid.ID, string) (*documentCore.Document, error) {
+		if err != nil {
+			return nil, err
+		}
+
+		return &documentCore.Document{ID: _documentID, BranchID: _branchID, Protected: protected}, nil
 	}
 }

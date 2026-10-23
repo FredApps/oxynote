@@ -324,6 +324,7 @@ func Test_agent_FetchDocumentBranches(t *testing.T) {
 				Result: []document.BranchSummary{
 					{
 						BranchID:     doc.BranchID,
+						DocumentID:   doc.ID,
 						BranchName:   doc.BranchName,
 						DocumentName: doc.DocumentName,
 						Icon:         doc.Icon,
@@ -334,6 +335,7 @@ func Test_agent_FetchDocumentBranches(t *testing.T) {
 					},
 					{
 						BranchID:     branch.BranchID,
+						DocumentID:   doc.ID,
 						BranchName:   branch.BranchName,
 						DocumentName: branch.DocumentName,
 						Icon:         branch.Icon,
@@ -362,6 +364,89 @@ func Test_agent_FetchDocumentBranches(t *testing.T) {
 			}
 
 			res, err := db.FetchDocumentBranches(ctx, c.DocumentID, c.OrganizationID)
+			testutil.AssertEqualError(t, c.Err, err)
+			testutil.AssertFilterEqual(t, c.Result, res)
+		})
+	}
+}
+
+func Test_agent_FetchDocumentBranchesByOrganizationID(t *testing.T) {
+	type tcase struct {
+		CancelledContext bool
+		OrganizationID   string
+		Result           []document.BranchSummary
+		Err              error
+	}
+
+	cc := map[string]func(*testing.T, *DB) tcase{
+		"Cancelled context": func(_ *testing.T, _ *DB) tcase {
+			return tcase{
+				CancelledContext: true,
+				OrganizationID:   "org-id",
+				Err:              assert.AnError,
+			}
+		},
+		"No branches": func(_ *testing.T, _ *DB) tcase {
+			return tcase{
+				OrganizationID: "non-existent-org-id",
+				Result:         []document.BranchSummary{},
+			}
+		},
+		"Successful fetch": func(t *testing.T, db *DB) tcase {
+			doc := prepDocuments(t, db, 1, nil)[0]
+			branch := prepDocumentBranches(t, db, 1, func(_ int, ndoc *document.Document) {
+				ndoc.ID = doc.ID
+				ndoc.OrganizationID = doc.OrganizationID
+			})[0]
+
+			// a document of another organization is left out.
+			prepDocuments(t, db, 1, nil)
+
+			return tcase{
+				OrganizationID: doc.OrganizationID,
+				Result: []document.BranchSummary{
+					{
+						BranchID:     doc.BranchID,
+						DocumentID:   doc.ID,
+						BranchName:   doc.BranchName,
+						DocumentName: doc.DocumentName,
+						Icon:         doc.Icon,
+						Protected:    doc.Protected,
+						Default:      doc.Default,
+						CreatedAt:    doc.CreatedAt,
+						UpdatedAt:    doc.UpdatedAt,
+					},
+					{
+						BranchID:     branch.BranchID,
+						DocumentID:   doc.ID,
+						BranchName:   branch.BranchName,
+						DocumentName: branch.DocumentName,
+						Icon:         branch.Icon,
+						Protected:    branch.Protected,
+						Default:      branch.Default,
+						CreatedAt:    branch.CreatedAt,
+						UpdatedAt:    branch.UpdatedAt,
+					},
+				},
+			}
+		},
+	}
+
+	for cn, cfn := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			db := prepTempDB(t)
+			c := cfn(t, db)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			if c.CancelledContext {
+				cancel()
+			}
+
+			res, err := db.FetchDocumentBranchesByOrganizationID(ctx, c.OrganizationID)
 			testutil.AssertEqualError(t, c.Err, err)
 			testutil.AssertFilterEqual(t, c.Result, res)
 		})
@@ -735,6 +820,7 @@ func Test_agent_FetchDocumentBranchesUnsafe(t *testing.T) {
 				Result: []document.BranchSummary{
 					{
 						BranchID:     doc.BranchID,
+						DocumentID:   doc.ID,
 						BranchName:   doc.BranchName,
 						DocumentName: doc.DocumentName,
 						Icon:         doc.Icon,

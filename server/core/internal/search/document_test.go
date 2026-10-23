@@ -29,6 +29,15 @@ func Test_Block_UID(t *testing.T) {
 	assert.Equal(t, "other-p1", Block{ID: "other-p1", BranchID: scope.BranchID}.UID())
 }
 
+func Test_Block_IsDocumentName(t *testing.T) {
+	t.Parallel()
+
+	scope := stubScope()
+
+	assert.True(t, scope.Block(_documentNameUID, "document", "Runbook").IsDocumentName())
+	assert.False(t, scope.Block("p1", "paragraph", "hello").IsDocumentName())
+}
+
 func Test_Scope_Block(t *testing.T) {
 	t.Parallel()
 

@@ -26,7 +26,7 @@ type listTags struct{}
 func (listTags) Info() Info {
 	return Info{
 		Name:        NameListTags,
-		Description: "List the organisation's tags in sidebar order as [{id, name, color, hidden, documents}]. color is a palette name, or unknown for a colour outside the palette that update_tag can fix. documents are the documents whose default branch carries the tag; a tag on another branch shows only on get_document for that branch. hidden is whether the current user keeps the tag out of their sidebar, and does not stop it being assigned.",
+		Description: "List the organisation's tags in sidebar order as [{id, name, color, hidden, documents}]. color is a palette name, or unknown for a colour outside the palette that update_tag can fix. documents are the documents whose default branch carries the tag; a tag on another branch shows only on get_document for that branch. hidden is the current user's own sidebar setting and does not stop assignment.",
 		Properties:  map[string]any{},
 	}
 }
@@ -492,7 +492,7 @@ func (setTagAssignment) Info() Info {
 		Description: "Put a tag on one branch of a document, or take it off. The document is listed under the tag in the sidebar while its default branch carries it. Setting what is already the case succeeds and changes nothing; delete_tag removes a tag everywhere. Returns {document_id, branch_id, tag_id, assigned}.",
 		Properties: map[string]any{
 			"document_id": map[string]any{"type": "string", "description": _documentIDDescription},
-			"branch_id":   map[string]any{"type": "string", "description": _branchIDDescription},
+			"branch_id":   map[string]any{"type": "string", "description": _writeBranchIDDescription},
 			"tag_id":      map[string]any{"type": "string", "description": _tagIDDescription},
 			"assigned":    map[string]any{"type": "boolean", "description": "true puts the tag on the branch, false takes it off."},
 		},

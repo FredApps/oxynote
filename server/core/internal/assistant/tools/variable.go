@@ -36,7 +36,7 @@ type listVariables struct{}
 func (listVariables) Info() Info {
 	return Info{
 		Name:        NameListVariables,
-		Description: "List the global variables by group as [{id, name, color, builtin, variables: [{id, key, name, description, type, builtin, default, value, options}]}]. Queries and metrics reference a variable as $key, so one change updates every metric using it; each user picks their own. default is what anyone without their own sees; for a list, its first option's id. value is the user's own, or null. Every metric follows the built-ins metric_range and metric_refresh unless pinned to a preset. A built-in's definition cannot change; set_variable_value sets its value or default.",
+		Description: "List the global variables by group as [{id, name, color, builtin, variables: [{id, key, name, description, type, builtin, default, value, options}]}]. Queries and metrics reference a variable as $key, so one change updates every metric using it; each user picks their own. default is what anyone without their own sees; for a list, its first option's id. value is the user's own, or null. A built-in's definition cannot change; set_variable_value sets its value or default.",
 		Properties:  map[string]any{},
 	}
 }

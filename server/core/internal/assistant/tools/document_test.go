@@ -46,6 +46,12 @@ func Test_listDocuments_Execute(t *testing.T) {
 
 	stubTreeDB := func() *DBMock {
 		return &DBMock{
+			FetchDocumentBranchesByOrganizationIDFunc: func(context.Context, string) ([]document.BranchSummary, error) {
+				return []document.BranchSummary{
+					{BranchID: parentBranchID, DocumentID: parentID, BranchName: "main", Default: true, Protected: true},
+					{BranchID: childBranchID, DocumentID: childID, BranchName: "main", Default: true},
+				}, nil
+			},
 			FetchDocumentTreeFunc: func(context.Context, string) (document.Summaries, error) {
 				return document.Summaries{{
 					ID:              parentID,
@@ -67,13 +73,17 @@ func Test_listDocuments_Execute(t *testing.T) {
 		}
 	}
 
+	parentBranches := `"branches":[{"id":"` + parentBranchID.String() + `","name":"main","protected":true,"default":true}]`
+	childBranches := `"branches":[{"id":"` + childBranchID.String() + `","name":"main","protected":false,"default":true}]`
+
 	cc := map[string]struct {
-		DB           *DBMock
-		Args         string
-		TreeFetches  int
-		ChildFetches int
-		Result       string
-		Err          error
+		DB            *DBMock
+		Args          string
+		TreeFetches   int
+		ChildFetches  int
+		BranchFetches int
+		Result        string
+		Err           error
 	}{
 		"Malformed arguments": {DB: stubTreeDB(), Args: `{`, Err: assert.AnError},
 		"Parent id is not a valid xid": {
@@ -87,11 +97,12 @@ func Test_listDocuments_Execute(t *testing.T) {
 			Err:  assert.AnError,
 		},
 		"Null parent id lists the whole tree": {
-			DB:          stubTreeDB(),
-			Args:        `{"parent_id":null}`,
-			TreeFetches: 1,
-			Result: `{"documents":[{"id":"` + parentID.String() + `","name":"Parent","default_branch_id":"` + parentBranchID.String() + `",` +
-				`"children":[{"id":"` + childID.String() + `","name":"Child","default_branch_id":"` + childBranchID.String() + `"}]}]}`,
+			DB:            stubTreeDB(),
+			Args:          `{"parent_id":null}`,
+			TreeFetches:   1,
+			BranchFetches: 1,
+			Result: `{"documents":[{"id":"` + parentID.String() + `","name":"Parent",` + parentBranches + `,` +
+				`"children":[{"id":"` + childID.String() + `","name":"Child",` + childBranches + `}]}]}`,
 		},
 		"Error returned by db.FetchDocumentTree": {
 			DB: &DBMock{
@@ -103,18 +114,34 @@ func Test_listDocuments_Execute(t *testing.T) {
 			TreeFetches: 1,
 			Err:         assert.AnError,
 		},
+		"Error returned by db.FetchDocumentBranchesByOrganizationID": {
+			DB: func() *DBMock {
+				db := stubTreeDB()
+				db.FetchDocumentBranchesByOrganizationIDFunc = func(context.Context, string) ([]document.BranchSummary, error) {
+					return nil, assert.AnError
+				}
+
+				return db
+			}(),
+			Args:          `{}`,
+			TreeFetches:   1,
+			BranchFetches: 1,
+			Err:           assert.AnError,
+		},
 		"Whole tree": {
-			DB:          stubTreeDB(),
-			Args:        `{}`,
-			TreeFetches: 1,
-			Result: `{"documents":[{"id":"` + parentID.String() + `","name":"Parent","default_branch_id":"` + parentBranchID.String() + `",` +
-				`"children":[{"id":"` + childID.String() + `","name":"Child","default_branch_id":"` + childBranchID.String() + `"}]}]}`,
+			DB:            stubTreeDB(),
+			Args:          `{}`,
+			TreeFetches:   1,
+			BranchFetches: 1,
+			Result: `{"documents":[{"id":"` + parentID.String() + `","name":"Parent",` + parentBranches + `,` +
+				`"children":[{"id":"` + childID.String() + `","name":"Child",` + childBranches + `}]}]}`,
 		},
 		"Children of one parent": {
-			DB:           stubTreeDB(),
-			Args:         `{"parent_id":"` + parentID.String() + `"}`,
-			ChildFetches: 1,
-			Result:       `{"documents":[{"id":"` + childID.String() + `","name":"Child","default_branch_id":"` + childBranchID.String() + `"}]}`,
+			DB:            stubTreeDB(),
+			Args:          `{"parent_id":"` + parentID.String() + `"}`,
+			ChildFetches:  1,
+			BranchFetches: 1,
+			Result:        `{"documents":[{"id":"` + childID.String() + `","name":"Child",` + childBranches + `}]}`,
 		},
 	}
 
@@ -127,6 +154,7 @@ func Test_listDocuments_Execute(t *testing.T) {
 
 			assert.Len(t, c.DB.FetchDocumentTreeCalls(), c.TreeFetches)
 			assert.Len(t, c.DB.FetchDocumentTreeByDocumentParentIDCalls(), c.ChildFetches)
+			assert.Len(t, c.DB.FetchDocumentBranchesByOrganizationIDCalls(), c.BranchFetches)
 
 			if err != nil {
 				return
@@ -1256,25 +1284,36 @@ func Test_updateDocument_Execute(t *testing.T) {
 func Test_summariesToTree(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, []docTreeNode{}, summariesToTree(nil))
+	assert.Equal(t, []docTreeNode{}, summariesToTree(nil, nil))
 
 	id := xid.New()
 	child := xid.New()
 
-	branch := xid.New()
+	mainID, draftID := xid.New(), xid.New()
 
 	got := summariesToTree(document.Summaries{{
 		ID:              id,
 		DocumentName:    "Parent",
-		DefaultBranchID: branch,
+		DefaultBranchID: mainID,
 		Icon:            "lucide:file",
 		Children:        document.Summaries{{ID: child, DocumentName: "Child"}},
-	}})
+	}}, map[xid.ID][]document.BranchSummary{
+		id: {
+			{BranchID: mainID, DocumentID: id, BranchName: "main", Default: true, Protected: true},
+			{BranchID: draftID, DocumentID: id, BranchName: "draft"},
+		},
+	})
 
 	require.Len(t, got, 1)
 	assert.Equal(t, id, got[0].ID)
 	assert.Equal(t, "Parent", got[0].Name)
-	assert.Equal(t, branch, got[0].DefaultBranchID)
+	assert.Equal(t, []branchInfo{
+		{ID: mainID, Name: "main", Protected: true, Default: true},
+		{ID: draftID, Name: "draft"},
+	}, got[0].Branches)
 	require.Len(t, got[0].Children, 1)
 	assert.Equal(t, child, got[0].Children[0].ID)
+
+	// a document whose branches are not listed has none, never null.
+	assert.Equal(t, []branchInfo{}, got[0].Children[0].Branches)
 }

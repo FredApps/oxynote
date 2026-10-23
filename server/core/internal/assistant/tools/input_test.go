@@ -444,13 +444,9 @@ func Test_input_Decode(t *testing.T) {
 		// than an empty object; that is a payload, not a decode failure.
 		"Empty arguments read as none": {Args: ``, Err: errors.New("document_id is required")},
 		"Blank arguments read as none": {Args: " \n", Err: errors.New("document_id is required")},
-		// NOTE: json/v2 randomizes the modal verb of its error messages per
-		// process ("cannot" / "unable to") to keep callers off the exact
-		// wording, so the expectation starts after it.
 		"Invalid id names the argument": {
-			Args:        `{"document_id":"nope","block_uid":"b"}`,
-			ErrContains: `unmarshal JSON string into Go xid.ID within "/document_id": xid: invalid ID`,
-			Err:         assert.AnError,
+			Args: `{"document_id":"nope","block_uid":"b"}`,
+			Err:  errors.New("document_id is not an id; copy all 20 characters exactly from the result that gave it"),
 		},
 		"Null id is not an argument": {
 			Args: `{"document_id":null,"block_uid":"b"}`,
@@ -1445,6 +1441,64 @@ func Test_input_FetchDocumentTree(t *testing.T) {
 	}
 }
 
+func Test_input_FetchBranchesByDocument(t *testing.T) {
+	t.Parallel()
+
+	otherID := xid.New()
+
+	cc := map[string]struct {
+		Err    error
+		Result map[xid.ID][]document.BranchSummary
+	}{
+		"Error returned by db.FetchDocumentBranchesByOrganizationID": {
+			Err: assert.AnError,
+		},
+		"Branches keyed by document": {
+			Result: map[xid.ID][]document.BranchSummary{
+				_testDocID: {
+					{BranchID: _stubMainBranchID, DocumentID: _testDocID, Default: true},
+					{BranchID: _stubBranchID, DocumentID: _testDocID},
+				},
+				otherID: {
+					{BranchID: _unknownBranchID, DocumentID: otherID, Default: true},
+				},
+			},
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			db := &DBMock{
+				FetchDocumentBranchesByOrganizationIDFunc: func(context.Context, string) ([]document.BranchSummary, error) {
+					if c.Err != nil {
+						return nil, c.Err
+					}
+
+					return []document.BranchSummary{
+						{BranchID: _stubMainBranchID, DocumentID: _testDocID, Default: true},
+						{BranchID: _stubBranchID, DocumentID: _testDocID},
+						{BranchID: _unknownBranchID, DocumentID: otherID, Default: true},
+					}, nil
+				},
+			}
+
+			got, err := testDeps(db, nil, nil).newInput(context.Background(), NameListDocuments, nil).FetchBranchesByDocument()
+			testutil.AssertEqualError(t, c.Err, err)
+
+			require.Len(t, db.FetchDocumentBranchesByOrganizationIDCalls(), 1)
+			assert.Equal(t, "org", db.FetchDocumentBranchesByOrganizationIDCalls()[0].OrganizationID)
+
+			if err != nil {
+				return
+			}
+
+			assert.Equal(t, c.Result, got)
+		})
+	}
+}
+
 func Test_input_FetchDocumentChildren(t *testing.T) {
 	t.Parallel()
 
@@ -2012,6 +2066,12 @@ func Test_input_AssignTag(t *testing.T) {
 			Listings: 1,
 			Err:      fmt.Errorf("branch %s: %w; the branches are main (%s), draft (%s)", _unknownBranchID, ErrUnknownBranch, _stubMainBranchID, _stubBranchID),
 		},
+		"Protected branch is refused before the write": {
+			DB:       protectedDocumentDB(),
+			Branch:   _stubMainBranchID,
+			Listings: 1,
+			Err:      fmt.Errorf("branch main: %w; write to one of draft (%s)", errBranchProtected, _stubBranchID),
+		},
 		"Unknown tag": {
 			DB: func() *DBMock {
 				db := stubDocumentDB()
@@ -2095,6 +2155,13 @@ func Test_input_UnassignTag(t *testing.T) {
 			Tag:      _testTagID,
 			Listings: 1,
 			Err:      fmt.Errorf("branch %s: %w; the branches are main (%s), draft (%s)", _unknownBranchID, ErrUnknownBranch, _stubMainBranchID, _stubBranchID),
+		},
+		"Protected branch is refused before the write": {
+			DB:       protectedDocumentDB(),
+			Branch:   _stubMainBranchID,
+			Tag:      _testTagID,
+			Listings: 1,
+			Err:      fmt.Errorf("branch main: %w; write to one of draft (%s)", errBranchProtected, _stubBranchID),
 		},
 		// the repository treats a tag the branch does not carry as
 		// nothing to do, so an id naming nothing is caught here.
@@ -2512,6 +2579,14 @@ func Test_input_CreateHook(t *testing.T) {
 			Listings: 1,
 			Err:      fmt.Errorf("branch %s: %w; the branches are main (%s), draft (%s)", _unknownBranchID, ErrUnknownBranch, _stubMainBranchID, _stubBranchID),
 		},
+		"Protected branch is refused before anything is created": {
+			DB:       protectedDocumentDB(),
+			Branch:   _stubMainBranchID,
+			Type:     hook.TypeScheduledReminder,
+			Settings: scheduled,
+			Listings: 1,
+			Err:      fmt.Errorf("branch main: %w; write to one of draft (%s)", errBranchProtected, _stubBranchID),
+		},
 		"Unknown block": {
 			DB:       stubHookDB(),
 			Man:      blockless,
@@ -2726,12 +2801,34 @@ func Test_input_DeleteHook(t *testing.T) {
 	}
 
 	cc := map[string]struct {
-		DB      *DBMock
-		Man     *HookManagerMock
-		Hook    *hook.Hook
-		Deletes int
-		Err     error
+		DB       *DBMock
+		Man      *HookManagerMock
+		Hook     *hook.Hook
+		Listings int
+		Deletes  int
+		Err      error
 	}{
+		"Error returned by db.FetchDocumentByBranchID": {
+			DB:   failingDocumentDB(),
+			Hook: stubHook(),
+			Err:  assert.AnError,
+		},
+		"Protected branch is refused before the delete": {
+			DB:       protectedDocumentDB(),
+			Hook:     stubHook(),
+			Listings: 1,
+			Err:      fmt.Errorf("branch main: %w; write to one of draft (%s)", errBranchProtected, _stubBranchID),
+		},
+		"Hook without a branch is deleted": {
+			DB: failingDocumentDB(),
+			Hook: func() *hook.Hook {
+				hk := stubHook()
+				hk.BranchID = null.Value[xid.ID]{}
+
+				return hk
+			}(),
+			Deletes: 1,
+		},
 		"Error returned by hookMan.DeleteHook": {
 			DB:      stubHookDB(),
 			Man:     failing,
@@ -2755,6 +2852,8 @@ func Test_input_DeleteHook(t *testing.T) {
 
 			err := inp.DeleteHook(c.Hook)
 			testutil.AssertEqualError(t, c.Err, err)
+
+			assert.Len(t, c.DB.FetchDocumentBranchesCalls(), c.Listings)
 
 			ff := d.hookMan.(*HookManagerMock).DeleteHookCalls()
 			require.Len(t, ff, c.Deletes)

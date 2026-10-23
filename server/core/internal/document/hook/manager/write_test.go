@@ -48,6 +48,7 @@ func Test_Manager_CreateHook(t *testing.T) {
 		Unreachable bool
 		// OtherDocument has the branch belong to another document.
 		OtherDocument bool
+		Protected     bool
 		FlushErr      error
 		FetchErr      error
 		BeginErr      error
@@ -87,6 +88,15 @@ func Test_Manager_CreateHook(t *testing.T) {
 			Flushes:       1,
 			Fetches:       1,
 			Err:           hook.ErrBranchMismatch,
+		},
+		"Protected branch is refused": {
+			Type:      hook.TypeScheduledReminder,
+			Settings:  processor.Settings(`{}`),
+			Protected: true,
+			Tx:        &TxMock{},
+			Flushes:   1,
+			Fetches:   1,
+			Err:       document.ErrBranchProtected,
 		},
 		"Block the branch does not hold is refused": {
 			Type:     hook.TypeScheduledReminder,
@@ -225,6 +235,8 @@ func Test_Manager_CreateHook(t *testing.T) {
 			documentID := xid.New()
 
 			doc := stubDocument()
+			doc.Protected = c.Protected
+
 			if !c.OtherDocument {
 				doc.ID = documentID
 			}
@@ -553,22 +565,26 @@ func Test_Manager_DeleteHook(t *testing.T) {
 		Held          bool
 		Hook          func(*testing.T) hook.Hook
 		OtherDocument bool
+		// Protected has the hook's branch protected.
+		Protected bool
 		// CDURL points changedetection at this address.
-		CDURL     string
-		FetchErr  error
-		FlushErr  error
-		BeginErr  error
-		DelErr    error
-		RecordErr error
-		CommitErr error
-		Fetches   int
-		Flushes   int
-		Begins    int
-		Deletes   int
-		Records   int
-		Commits   int
-		Rollbacks int
-		Err       error
+		CDURL          string
+		FetchErr       error
+		BranchFetchErr error
+		FlushErr       error
+		BeginErr       error
+		DelErr         error
+		RecordErr      error
+		CommitErr      error
+		Fetches        int
+		BranchFetches  int
+		Flushes        int
+		Begins         int
+		Deletes        int
+		Records        int
+		Commits        int
+		Rollbacks      int
+		Err            error
 	}{
 		"Hook another write holds": {
 			Held: true,
@@ -593,14 +609,33 @@ func Test_Manager_DeleteHook(t *testing.T) {
 			Fetches:       1,
 			Err:           hook.ErrHookMismatch,
 		},
+		"Error returned by db.FetchDocumentByBranchID": {
+			Hook: func(t *testing.T) hook.Hook {
+				return stubHook(t, branchID, time.Now().Add(time.Hour), time.Now())
+			},
+			BranchFetchErr: sql.ErrNoRows,
+			Fetches:        1,
+			BranchFetches:  1,
+			Err:            sql.ErrNoRows,
+		},
+		"Hook on a protected branch is refused": {
+			Hook: func(t *testing.T) hook.Hook {
+				return stubHook(t, branchID, time.Now().Add(time.Hour), time.Now())
+			},
+			Protected:     true,
+			Fetches:       1,
+			BranchFetches: 1,
+			Err:           document.ErrBranchProtected,
+		},
 		"Error returned by flusher.Flush": {
 			Hook: func(t *testing.T) hook.Hook {
 				return stubHook(t, branchID, time.Now().Add(time.Hour), time.Now())
 			},
-			FlushErr: assert.AnError,
-			Fetches:  1,
-			Flushes:  1,
-			Err:      assert.AnError,
+			FlushErr:      assert.AnError,
+			Fetches:       1,
+			BranchFetches: 1,
+			Flushes:       1,
+			Err:           assert.AnError,
 		},
 		// the row goes only once the resource it describes is gone, so a
 		// failed teardown keeps it.
@@ -608,10 +643,11 @@ func Test_Manager_DeleteHook(t *testing.T) {
 			Hook: func(*testing.T) hook.Hook {
 				return urlWatcherHook(branchID)
 			},
-			CDURL:   "http://127.0.0.1:1",
-			Fetches: 1,
-			Flushes: 1,
-			Err:     hook.ErrUpstreamUnavailable,
+			CDURL:         "http://127.0.0.1:1",
+			Fetches:       1,
+			BranchFetches: 1,
+			Flushes:       1,
+			Err:           hook.ErrUpstreamUnavailable,
 		},
 		// a stored state that does not decode is no service's failure.
 		"Malformed state keeps the hook": {
@@ -621,58 +657,63 @@ func Test_Manager_DeleteHook(t *testing.T) {
 
 				return hk
 			},
-			Fetches: 1,
-			Flushes: 1,
-			Err:     assert.AnError,
+			Fetches:       1,
+			BranchFetches: 1,
+			Flushes:       1,
+			Err:           assert.AnError,
 		},
 		"Error returned by db.BeginTx": {
 			Hook: func(t *testing.T) hook.Hook {
 				return stubHook(t, branchID, time.Now().Add(time.Hour), time.Now())
 			},
-			BeginErr: assert.AnError,
-			Fetches:  1,
-			Flushes:  1,
-			Begins:   1,
-			Err:      assert.AnError,
+			BeginErr:      assert.AnError,
+			Fetches:       1,
+			BranchFetches: 1,
+			Flushes:       1,
+			Begins:        1,
+			Err:           assert.AnError,
 		},
 		"Error returned by tx.DeleteDocumentHook": {
 			Hook: func(t *testing.T) hook.Hook {
 				return stubHook(t, branchID, time.Now().Add(time.Hour), time.Now())
 			},
-			DelErr:    assert.AnError,
-			Fetches:   1,
-			Flushes:   1,
-			Begins:    1,
-			Deletes:   1,
-			Rollbacks: 1,
-			Err:       assert.AnError,
+			DelErr:        assert.AnError,
+			Fetches:       1,
+			BranchFetches: 1,
+			Flushes:       1,
+			Begins:        1,
+			Deletes:       1,
+			Rollbacks:     1,
+			Err:           assert.AnError,
 		},
 		"Error returned by tx.RecordDocumentBranchHistoryEntry": {
 			Hook: func(t *testing.T) hook.Hook {
 				return stubHook(t, branchID, time.Now().Add(time.Hour), time.Now())
 			},
-			RecordErr: assert.AnError,
-			Fetches:   1,
-			Flushes:   1,
-			Begins:    1,
-			Deletes:   1,
-			Records:   1,
-			Rollbacks: 1,
-			Err:       assert.AnError,
+			RecordErr:     assert.AnError,
+			Fetches:       1,
+			BranchFetches: 1,
+			Flushes:       1,
+			Begins:        1,
+			Deletes:       1,
+			Records:       1,
+			Rollbacks:     1,
+			Err:           assert.AnError,
 		},
 		"Error returned by tx.Commit": {
 			Hook: func(t *testing.T) hook.Hook {
 				return stubHook(t, branchID, time.Now().Add(time.Hour), time.Now())
 			},
-			CommitErr: assert.AnError,
-			Fetches:   1,
-			Flushes:   1,
-			Begins:    1,
-			Deletes:   1,
-			Records:   1,
-			Commits:   1,
-			Rollbacks: 1,
-			Err:       assert.AnError,
+			CommitErr:     assert.AnError,
+			Fetches:       1,
+			BranchFetches: 1,
+			Flushes:       1,
+			Begins:        1,
+			Deletes:       1,
+			Records:       1,
+			Commits:       1,
+			Rollbacks:     1,
+			Err:           assert.AnError,
 		},
 		"Hook never set up is deleted": {
 			Hook: func(*testing.T) hook.Hook {
@@ -681,13 +722,14 @@ func Test_Manager_DeleteHook(t *testing.T) {
 
 				return hk
 			},
-			Fetches:   1,
-			Flushes:   1,
-			Begins:    1,
-			Deletes:   1,
-			Records:   1,
-			Commits:   1,
-			Rollbacks: 1,
+			Fetches:       1,
+			BranchFetches: 1,
+			Flushes:       1,
+			Begins:        1,
+			Deletes:       1,
+			Records:       1,
+			Commits:       1,
+			Rollbacks:     1,
 		},
 		"Hook without a branch has no history": {
 			Hook: func(t *testing.T) hook.Hook {
@@ -706,13 +748,14 @@ func Test_Manager_DeleteHook(t *testing.T) {
 			Hook: func(t *testing.T) hook.Hook {
 				return stubHook(t, branchID, time.Now().Add(time.Hour), time.Now())
 			},
-			Fetches:   1,
-			Flushes:   1,
-			Begins:    1,
-			Deletes:   1,
-			Records:   1,
-			Commits:   1,
-			Rollbacks: 1,
+			Fetches:       1,
+			BranchFetches: 1,
+			Flushes:       1,
+			Begins:        1,
+			Deletes:       1,
+			Records:       1,
+			Commits:       1,
+			Rollbacks:     1,
 		},
 	}
 
@@ -740,7 +783,12 @@ func Test_Manager_DeleteHook(t *testing.T) {
 				wc = webchange.NewClient(c.CDURL, "key")
 			}
 
-			dbm := stubStoredHook(&DBMock{BeginTxFunc: testutil.StubBeginTx(tx, c.BeginErr)}, hk, c.FetchErr)
+			dbm := stubStoredHook(&DBMock{
+				BeginTxFunc: testutil.StubBeginTx(tx, c.BeginErr),
+				FetchDocumentByBranchIDFunc: func(context.Context, xid.ID, string) (*document.Document, error) {
+					return &document.Document{Protected: c.Protected}, c.BranchFetchErr
+				},
+			}, hk, c.FetchErr)
 			man := newTestManager(t, dbm, &fakePublisher{}, wc)
 
 			if c.FlushErr != nil {
@@ -783,6 +831,7 @@ func Test_Manager_DeleteHook(t *testing.T) {
 			}
 
 			assert.Len(t, dbm.FetchDocumentHookCalls(), c.Fetches)
+			assert.Len(t, dbm.FetchDocumentByBranchIDCalls(), c.BranchFetches)
 			assert.Len(t, man.flusher.(*FlusherMock).FlushCalls(), c.Flushes)
 			assert.Len(t, dbm.BeginTxCalls(), c.Begins)
 

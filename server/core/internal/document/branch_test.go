@@ -49,6 +49,26 @@ func Test_Document_AllowsBranchDelete(t *testing.T) {
 	}
 }
 
+func Test_Document_AllowsDocumentChange(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Doc Document
+		Err error
+	}{
+		"Protected branch":   {Doc: Document{Protected: true}, Err: ErrBranchProtected},
+		"Unprotected branch": {Doc: Document{}},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			testutil.AssertEqualError(t, c.Err, c.Doc.AllowsDocumentChange())
+		})
+	}
+}
+
 func Test_AllowsMerge(t *testing.T) {
 	t.Parallel()
 
