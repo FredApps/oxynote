@@ -125,7 +125,7 @@ RUN case "${TARGETARCH}" in \
 # system libraries, roughly half the size of the official node binary.
 # The base is digest-pinned; nodejs then tracks alpine 3.24's package
 # repo, which only ships security bumps within the branch.
-FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 
 # the exact pins make the build fail — instead of silently shifting —
 # when alpine's branch rotates a package (they keep only the newest build
@@ -137,7 +137,7 @@ FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cab
 # /usr/libexec/postgresql18 paths: a data directory only opens under the
 # major that wrote it, so a major bump needs an upgrade path for existing
 # volumes, not only a new pin.
-ARG NODE_APK_VERSION=24.18.1-r0
+ARG NODE_APK_VERSION=24.22.1-r0
 ARG ICU_DATA_APK_VERSION=78.1-r0
 ARG POSTGRESQL_APK_VERSION=18.6-r0
 
