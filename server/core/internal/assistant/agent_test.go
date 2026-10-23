@@ -30,7 +30,7 @@ func Test_Manager_newAgent(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			m := testManager()
+			m, _ := testManagerStores()
 			if c.OmitSummary {
 				m.summary = nil
 			}

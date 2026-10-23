@@ -35,13 +35,6 @@ func Test_Build(t *testing.T) {
 		return strings.Replace(Render([]document.Block{stored}), old, replacement, 1)
 	}
 
-	stored := func(id string) document.Block {
-		b, ok := root.FindByUID(id)
-		require.True(t, ok)
-
-		return b
-	}
-
 	uids := func(blocks ...document.Block) []string {
 		out := make([]string, 0, len(blocks))
 
@@ -95,7 +88,7 @@ func Test_Build(t *testing.T) {
 				assert.Equal(t, "nc-p1", got[0].Attrs[document.AttrCommentID])
 			},
 		},
-		"Titled code keeps its parts' uids and comments": {
+		"Titled code keeps the uids and comments of its parts": {
 			Markup: edit("tc1", "POST /login", "POST /signin"),
 			Stored: root,
 			Check: func(t *testing.T, got []document.Block) {
@@ -119,11 +112,14 @@ func Test_Build(t *testing.T) {
 			Stored: root,
 			Check: func(t *testing.T, got []document.Block) {
 				t.Helper()
+
+				right, ok := root.FindByUID("sr")
+				require.True(t, ok)
 				assert.Equal(t, []string{"sl", "sr"}, uids(got[0].Content...))
-				assert.Equal(t, stored("sr"), got[0].Content[1])
+				assert.Equal(t, right, got[0].Content[1])
 			},
 		},
-		"Parameter row keeps its parts' uids": {
+		"Parameter row keeps the uids of its parts": {
 			Markup: edit("pl1", `type="string"`, `type="email"`),
 			Stored: root,
 			Check: func(t *testing.T, got []document.Block) {
@@ -139,7 +135,10 @@ func Test_Build(t *testing.T) {
 			Stored: root,
 			Check: func(t *testing.T, got []document.Block) {
 				t.Helper()
-				assert.Equal(t, stored("pi1"), got[0].Content[1])
+
+				row, ok := root.FindByUID("pi1")
+				require.True(t, ok)
+				assert.Equal(t, row, got[0].Content[1])
 			},
 		},
 		"Metric keeps its simulation flag with the same preset": {
@@ -185,7 +184,7 @@ func Test_Build(t *testing.T) {
 			Markup: "<p>\n  Wrapped\n    text with <strong>strong</strong>\n  words.\n</p>",
 			Result: "<p>Wrapped text with <b>strong</b> words.</p>\n",
 		},
-		"Spaces on the text's own line stay": {
+		"Spaces on the line of the text stay": {
 			Markup: "<p> a b </p>",
 			Result: "<p> a b </p>\n",
 		},
@@ -193,7 +192,7 @@ func Test_Build(t *testing.T) {
 			Markup: "<p><b>a<b>b</b></b></p>",
 			Result: "<p><b>ab</b></p>\n",
 		},
-		"Entry text wrapped in a p is the entry's text": {
+		"Entry text wrapped in a p is the text of the entry": {
 			Markup: "<ul><li>\n  <p>x</p>\n</li></ul>",
 			Result: "<ul>\n  <li>x</li>\n</ul>\n",
 		},
@@ -324,7 +323,7 @@ func Test_elements(t *testing.T) {
 		Result string
 		Err    error
 	}{
-		"Elements in order, blank text dropped": {
+		"Elements in order and blank text dropped": {
 			Markup: "<p>a</p>\n  <hr/>\n",
 			Result: `p@1["a"] hr@2`,
 		},
@@ -357,21 +356,49 @@ func Test_elements(t *testing.T) {
 func Test_newBlock(t *testing.T) {
 	t.Parallel()
 
-	stored := document.Block{
-		Type:  document.BlockNodeParagraph,
-		Attrs: document.Attributes{document.AttrUID: "p1", document.AttrCommentID: "c1", "align": "left"},
+	cc := map[string]struct {
+		Type   document.BlockNodeType
+		Stored document.Block
+		Result document.Block
+
+		// NewUID, when set, expects a fresh uid as the only attribute in
+		// place of Result.
+		NewUID bool
+	}{
+		"Stored uid and block comment kept": {
+			Type: document.BlockNodeHeading,
+			Stored: document.Block{
+				Type:  document.BlockNodeParagraph,
+				Attrs: document.Attributes{document.AttrUID: "p1", document.AttrCommentID: "c1", "align": "left"},
+			},
+			Result: document.Block{
+				Type:  document.BlockNodeHeading,
+				Attrs: document.Attributes{document.AttrUID: "p1", document.AttrCommentID: "c1"},
+			},
+		},
+		"Nothing stored": {
+			Type:   document.BlockNodeParagraph,
+			NewUID: true,
+		},
 	}
 
-	got := newBlock(document.BlockNodeHeading, stored, nil)
-	assert.Equal(t, document.Block{
-		Type:  document.BlockNodeHeading,
-		Attrs: document.Attributes{document.AttrUID: "p1", document.AttrCommentID: "c1"},
-	}, got)
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
 
-	got = newBlock(document.BlockNodeParagraph, document.Block{}, nil)
-	uid, _ := got.UID()
-	assert.NotEmpty(t, uid)
-	assert.Len(t, got.Attrs, 1)
+			got := newBlock(c.Type, c.Stored, nil)
+
+			if c.NewUID {
+				uid, _ := got.UID()
+				assert.NotEmpty(t, uid)
+				assert.Len(t, got.Attrs, 1)
+
+				return
+			}
+
+			assert.Equal(t, c.Result, got)
+		})
+	}
 }
 
 func Test_titleBlock(t *testing.T) {
@@ -409,9 +436,23 @@ func Test_keepIfUnchanged(t *testing.T) {
 	same := document.Block{Type: document.BlockNodeParagraph, Attrs: document.Attributes{document.AttrUID: "p"}, Content: stored.Content}
 	changed := document.Block{Type: document.BlockNodeParagraph, Attrs: document.Attributes{document.AttrUID: "p"}}
 
-	assert.Equal(t, stored, keepIfUnchanged(stored, same))
-	assert.Equal(t, changed, keepIfUnchanged(stored, changed))
-	assert.Equal(t, same, keepIfUnchanged(document.Block{}, same))
+	cc := map[string]struct {
+		Stored document.Block
+		Built  document.Block
+		Result document.Block
+	}{
+		"Same rendering keeps the stored block": {Stored: stored, Built: same, Result: stored},
+		"Changed rendering takes the built one": {Stored: stored, Built: changed, Result: changed},
+		"Nothing stored":                        {Built: same, Result: same},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Result, keepIfUnchanged(c.Stored, c.Built))
+		})
+	}
 }
 
 func Test_findDuplicateUID(t *testing.T) {
@@ -421,10 +462,28 @@ func Test_findDuplicateUID(t *testing.T) {
 		return document.Block{Attrs: document.Attributes{document.AttrUID: uid}, Content: content}
 	}
 
-	_, found := findDuplicateUID([]document.Block{block("a", block("b")), block("c")}, map[string]bool{})
-	assert.False(t, found)
+	cc := map[string]struct {
+		Blocks []document.Block
+		UID    string
+		Found  bool
+	}{
+		"Every uid held once": {
+			Blocks: []document.Block{block("a", block("b")), block("c")},
+		},
+		"Nested uid held twice": {
+			Blocks: []document.Block{block("a", block("b")), block("c", block("b"))},
+			UID:    "b",
+			Found:  true,
+		},
+	}
 
-	uid, found := findDuplicateUID([]document.Block{block("a", block("b")), block("c", block("b"))}, map[string]bool{})
-	assert.True(t, found)
-	assert.Equal(t, "b", uid)
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			uid, found := findDuplicateUID(c.Blocks, map[string]bool{})
+			assert.Equal(t, c.Found, found)
+			assert.Equal(t, c.UID, uid)
+		})
+	}
 }

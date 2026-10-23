@@ -85,11 +85,11 @@ func Test_parse(t *testing.T) {
 			Input:  `<p>a&nbsp;b &amp c &lt; d</p>`,
 			Result: `p@1["a&nbsp;b &amp c < d"]`,
 		},
-		"HTML spellings of bold, italic and strike": {
+		"HTML spellings of inline tags": {
 			Input:  `<p><strong>x</strong> <em>y</em> <DEL>z</DEL></p>`,
 			Result: `p@1[b@1["x"] " " i@1["y"] " " s@1["z"]]`,
 		},
-		"Bare, single quoted and self-closing attributes": {
+		"Bare and single quoted attributes and a self-closing tag": {
 			Input:  `<task checked id='t&quot;1'>Done</task><img src="x.png" width="2"/>`,
 			Result: `task@1(checked=true id=t"1)["Done"] img@1(src=x.png width=2)`,
 		},
@@ -122,7 +122,7 @@ func Test_parse(t *testing.T) {
 			Input: "<p>a</p>\n<callout>\n<p>b</p>",
 			Err:   errors.New("line 2: <callout> is never closed"),
 		},
-		"Raw element closes in any case and with space before >": {
+		"Raw element closes in any case and with a space before the bracket": {
 			Input:  "<PRE>a</PRE>\n<p>b</p>\n<pre>c</pre >",
 			Result: `pre@1{"a"} "\n" p@2["b"] "\n" pre@3{"c"}`,
 		},
@@ -169,6 +169,25 @@ func Test_parse(t *testing.T) {
 func Test_unescapeRaw(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "a </pre> &lt;/pre> &amp;lt;/pre> &lt;/p>", unescapeRaw("a &lt;/pre> &amp;lt;/pre> &amp;amp;lt;/pre> &lt;/p>", _elemCode))
-	assert.Equal(t, "a </PRE> &lt;/Pre>", unescapeRaw("a &lt;/PRE> &amp;lt;/Pre>", _elemCode))
+	cc := map[string]struct {
+		Text   string
+		Result string
+	}{
+		"Each escaped closing tag loses one level": {
+			Text:   "a &lt;/pre> &amp;lt;/pre> &amp;amp;lt;/pre> &lt;/p>",
+			Result: "a </pre> &lt;/pre> &amp;lt;/pre> &lt;/p>",
+		},
+		"Closing tags in any case": {
+			Text:   "a &lt;/PRE> &amp;lt;/Pre>",
+			Result: "a </PRE> &lt;/Pre>",
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Result, unescapeRaw(c.Text, _elemCode))
+		})
+	}
 }
