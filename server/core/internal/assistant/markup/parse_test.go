@@ -77,6 +77,10 @@ func Test_parse(t *testing.T) {
 			Input:  `<pre language="go">if a < b && c { return "</p>" } &amp; &lt;/pre></pre>`,
 			Result: `pre@1(language=go){"if a < b && c { return \"</p>\" } &amp; </pre>"}`,
 		},
+		"Raw element escaped whole as text is decoded": {
+			Input:  `<pre>&lt;env name="A" value="&lt;port>" /> &amp;&amp; &lt;/pre></pre>`,
+			Result: `pre@1{"<env name=\"A\" value=\"<port>\" /> && </pre>"}`,
+		},
 		"Stray angle bracket and unknown tag are text": {
 			Input:  `<p>1 < 2 and <br> and <div>x</div></p>`,
 			Result: `p@1["1 < 2 and <br> and <div>x</div>"]`,
@@ -174,12 +178,16 @@ func Test_unescapeRaw(t *testing.T) {
 		Result string
 	}{
 		"Each escaped closing tag loses one level": {
-			Text:   "a &lt;/pre> &amp;lt;/pre> &amp;amp;lt;/pre> &lt;/p>",
-			Result: "a </pre> &lt;/pre> &amp;lt;/pre> &lt;/p>",
+			Text:   "a < b &lt;/pre> &amp;lt;/pre> &amp;amp;lt;/pre> &lt;/p>",
+			Result: "a < b </pre> &lt;/pre> &amp;lt;/pre> &lt;/p>",
 		},
 		"Closing tags in any case": {
-			Text:   "a &lt;/PRE> &amp;lt;/Pre>",
-			Result: "a </PRE> &lt;/Pre>",
+			Text:   "a < b &lt;/PRE> &amp;lt;/Pre>",
+			Result: "a < b </PRE> &lt;/Pre>",
+		},
+		"Text with no angle bracket is decoded whole": {
+			Text:   "&lt;a> &amp;lt;/pre> &quot;",
+			Result: `<a> &lt;/pre> "`,
 		},
 	}
 
