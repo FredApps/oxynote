@@ -39,6 +39,10 @@ func Test_OpError_describe(t *testing.T) {
 			Msg:    "splitDocumentationParameterList is not allowed there in the document root, which takes paragraph at that point.",
 			Result: "<params> is not allowed there in the document root, which takes <p> at that point. <params> go only in a <split_doc>'s <left>, after its heading and text.",
 		},
+		"Text after the params is told to go before them": {
+			Msg:    "paragraph is not allowed there in splitDocumentationLeftSide, which takes splitDocumentationParameterList at that point.",
+			Result: "<p> is not allowed there in <left>, which takes <params> at that point. In <left>, text, lists and callouts go before the <params>.",
+		},
 		"Metric outside its containers is told where it goes": {
 			Msg:    "metricBlock is not allowed there in calloutBlock, which takes paragraph at that point.",
 			Result: "<metric> is not allowed there in <callout>, which takes <p> at that point. A <metric> goes only in <metrics> or a <split_doc>'s <right>.",

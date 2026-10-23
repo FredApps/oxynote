@@ -59,6 +59,12 @@ func (e OpError) describe() string {
 		}
 	}
 
+	// once a split doc's left side has its params, only more params
+	// fit, which reads as if the text sent were wrong rather than late.
+	if strings.Contains(e.Message, "there in "+string(document.BlockNodeSplitDocLeft)+", which takes "+string(document.BlockNodeParamList)+" at that point") {
+		msg += " In <left>, text, lists and callouts go before the <params>."
+	}
+
 	return msg
 }
 

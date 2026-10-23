@@ -127,7 +127,7 @@ func Test_listVariables_Info(t *testing.T) {
 
 	info := listVariables{}.Info()
 
-	assert.Equal(t, Traits{}, info.Traits)
+	assert.Equal(t, Traits{Group: GroupVariables}, info.Traits)
 	assert.Equal(t, NameListVariables, info.Name)
 	assert.NotEmpty(t, info.Description)
 	assert.Empty(t, info.Properties)
@@ -235,7 +235,7 @@ func Test_createVariableGroup_Info(t *testing.T) {
 
 	info := createVariableGroup{}.Info()
 
-	assert.Equal(t, Traits{Write: true}, info.Traits)
+	assert.Equal(t, Traits{Write: true, Group: GroupVariables}, info.Traits)
 	assert.Equal(t, NameCreateVariableGroup, info.Name)
 	assert.NotEmpty(t, info.Description)
 	assert.Equal(t, []string{"name", "color"}, info.Required)
@@ -389,7 +389,7 @@ func Test_updateVariableGroup_Info(t *testing.T) {
 
 	info := updateVariableGroup{}.Info()
 
-	assert.Equal(t, Traits{Write: true}, info.Traits)
+	assert.Equal(t, Traits{Write: true, Idempotent: true, Group: GroupVariables}, info.Traits)
 	assert.Equal(t, NameUpdateVariableGroup, info.Name)
 	assert.NotEmpty(t, info.Description)
 	assert.Equal(t, []string{"group_id"}, info.Required)
@@ -526,7 +526,7 @@ func Test_deleteVariableGroup_Info(t *testing.T) {
 
 	info := deleteVariableGroup{}.Info()
 
-	assert.Equal(t, Traits{Write: true, Destructive: true}, info.Traits)
+	assert.Equal(t, Traits{Write: true, Destructive: true, Group: GroupVariables}, info.Traits)
 	assert.Equal(t, NameDeleteVariableGroup, info.Name)
 	assert.NotEmpty(t, info.Description)
 	assert.Equal(t, []string{"group_id"}, info.Required)
@@ -707,7 +707,7 @@ func Test_createVariable_Info(t *testing.T) {
 
 	info := createVariable{}.Info()
 
-	assert.Equal(t, Traits{Write: true}, info.Traits)
+	assert.Equal(t, Traits{Write: true, Group: GroupVariables}, info.Traits)
 	assert.Equal(t, NameCreateVariable, info.Name)
 	assert.NotEmpty(t, info.Description)
 	assert.Equal(t, []string{"group_id", "key", "name", "type"}, info.Required)
@@ -942,7 +942,7 @@ func Test_updateVariable_Info(t *testing.T) {
 
 	info := updateVariable{}.Info()
 
-	assert.Equal(t, Traits{Write: true}, info.Traits)
+	assert.Equal(t, Traits{Write: true, Overwrites: true, Idempotent: true, Group: GroupVariables}, info.Traits)
 	assert.Equal(t, NameUpdateVariable, info.Name)
 	assert.NotEmpty(t, info.Description)
 	assert.Equal(t, []string{"variable_id"}, info.Required)
@@ -1100,7 +1100,7 @@ func Test_deleteVariable_Info(t *testing.T) {
 
 	info := deleteVariable{}.Info()
 
-	assert.Equal(t, Traits{Write: true, Destructive: true}, info.Traits)
+	assert.Equal(t, Traits{Write: true, Destructive: true, Group: GroupVariables}, info.Traits)
 	assert.Equal(t, NameDeleteVariable, info.Name)
 	assert.NotEmpty(t, info.Description)
 	assert.Equal(t, []string{"variable_id"}, info.Required)
@@ -1225,7 +1225,7 @@ func Test_setVariableValue_Info(t *testing.T) {
 
 	info := setVariableValue{}.Info()
 
-	assert.Equal(t, Traits{Write: true}, info.Traits)
+	assert.Equal(t, Traits{Write: true, Idempotent: true, Group: GroupVariables}, info.Traits)
 	assert.Equal(t, NameSetVariableValue, info.Name)
 	assert.NotEmpty(t, info.Description)
 	assert.Equal(t, []string{"variable_id", "value"}, info.Required)

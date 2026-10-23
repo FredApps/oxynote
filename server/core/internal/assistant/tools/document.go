@@ -522,7 +522,7 @@ type updateDocument struct{}
 func (updateDocument) Info() Info {
 	return Info{
 		Name:        NameUpdateDocument,
-		Traits:      Traits{Write: true},
+		Traits:      Traits{Write: true, Idempotent: true},
 		Description: "Change a document's name, icon or parent; give only what changes, and a call changing nothing is refused. Content is untouched, and a parent that is the document itself or one of its descendants is refused. Returns {document_id} with what changed.",
 		Properties: map[string]any{
 			"document_id":     map[string]any{"type": "string", "description": _documentIDDescription},

@@ -143,6 +143,21 @@ func Test_Set_Entries(t *testing.T) {
 	entries := s.Entries()
 	require.Len(t, entries, len(allToolNames()))
 
+	overwrites := []Name{
+		NameReplaceBlocks,
+		NameUpdateVariable,
+		NameUpdateHook,
+	}
+
+	idempotent := []Name{
+		NameUpdateDocument,
+		NameUpdateTag,
+		NameSetTagAssignment,
+		NameUpdateVariableGroup,
+		NameUpdateVariable,
+		NameSetVariableValue,
+	}
+
 	destructive := []Name{
 		NameDeleteDocument,
 		NameDeleteBlock,
@@ -204,6 +219,8 @@ func Test_Set_Entries(t *testing.T) {
 		tr := e.Info.Traits
 		assert.Equal(t, slices.Contains(s.WriteNames(), string(e.Info.Name)), tr.Write, "%s write flag", e.Info.Name)
 		assert.Equal(t, slices.Contains(destructive, e.Info.Name), tr.Destructive, "%s destructive flag", e.Info.Name)
+		assert.Equal(t, slices.Contains(overwrites, e.Info.Name), tr.Overwrites, "%s overwrites flag", e.Info.Name)
+		assert.Equal(t, slices.Contains(idempotent, e.Info.Name), tr.Idempotent, "%s idempotent flag", e.Info.Name)
 		assert.Equal(t, e.Info.Name == NameReadToolOutput, tr.Internal, "%s internal flag", e.Info.Name)
 	}
 
@@ -301,6 +318,32 @@ func Test_Set_WriteNames(t *testing.T) {
 	got[0] = "clobbered"
 
 	assert.NotContains(t, s.WriteNames(), "clobbered")
+}
+
+func Test_Set_Grouped(t *testing.T) {
+	t.Parallel()
+
+	s := New(testDeps(nil, nil, nil))
+
+	got := map[Group][]Name{}
+
+	for g, tls := range s.Grouped() {
+		for _, tl := range tls {
+			info, err := tl.Info(context.Background())
+			require.NoError(t, err)
+
+			got[g] = append(got[g], Name(info.Name))
+		}
+	}
+
+	// document and block tools stay out of every group: each
+	// conversation needs them from its first call.
+	assert.Equal(t, map[Group][]Name{
+		GroupTags:        {NameListTags, NameCreateTag, NameUpdateTag, NameDeleteTag, NameSetTagAssignment},
+		GroupVariables:   {NameListVariables, NameCreateVariableGroup, NameUpdateVariableGroup, NameDeleteVariableGroup, NameCreateVariable, NameUpdateVariable, NameDeleteVariable, NameSetVariableValue},
+		GroupHooks:       {NameListHooks, NameCreateHook, NameUpdateHook, NameDeleteHook},
+		GroupDataSources: {NameListDataSources, NameGetDataSourceMetadata, NameListPrometheusLabels, NameListPrometheusSeries, NameQueryDataSource},
+	}, got)
 }
 
 func Test_Set_Label(t *testing.T) {

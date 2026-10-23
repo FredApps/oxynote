@@ -40,6 +40,7 @@ func Test_annotations(t *testing.T) {
 		ReadOnly    bool
 		OpenWorld   bool
 		Destructive *bool
+		Idempotent  bool
 	}{
 		"Read tool": {
 			Entry:    tools.Entry{},
@@ -61,6 +62,16 @@ func Test_annotations(t *testing.T) {
 				return &v
 			}(),
 		},
+		"Idempotent write tool": {
+			Entry:       tools.Entry{Info: tools.Info{Traits: tools.Traits{Write: true, Idempotent: true}}},
+			Destructive: new(bool),
+			Idempotent:  true,
+		},
+		// only a write says whether repeating it matters.
+		"Idempotent trait on a read is not reported": {
+			Entry:    tools.Entry{Info: tools.Info{Traits: tools.Traits{Idempotent: true}}},
+			ReadOnly: true,
+		},
 		"Overwriting write tool is destructive to a client": {
 			Entry: tools.Entry{Info: tools.Info{Traits: tools.Traits{Write: true, Overwrites: true}}},
 			Destructive: func() *bool {
@@ -78,6 +89,7 @@ func Test_annotations(t *testing.T) {
 
 			assert.Equal(t, c.ReadOnly, got.ReadOnlyHint)
 			assert.Equal(t, c.Destructive, got.DestructiveHint)
+			assert.Equal(t, c.Idempotent, got.IdempotentHint)
 			require.NotNil(t, got.OpenWorldHint)
 			assert.Equal(t, c.OpenWorld, *got.OpenWorldHint)
 		})

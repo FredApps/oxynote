@@ -1029,7 +1029,7 @@ func Test_updateDocument_Info(t *testing.T) {
 
 	info := updateDocument{}.Info()
 
-	assert.Equal(t, Traits{Write: true}, info.Traits)
+	assert.Equal(t, Traits{Write: true, Idempotent: true}, info.Traits)
 
 	assert.Equal(t, NameUpdateDocument, info.Name)
 	assert.Equal(t, []string{"document_id"}, info.Required)

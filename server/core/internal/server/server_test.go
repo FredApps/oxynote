@@ -208,7 +208,7 @@ func Test_NewServer(t *testing.T) {
 				// a manager of this subtest's own: NewServer calls
 				// SetTreeNotifier, which must not race another parallel
 				// case's identical call on a shared manager.
-				assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, &SearchQueueMock{}, nil, githubMan, nil, nil, nil, "claude"),
+				assistantCore.NewManager(log, nil, &redis.Pool{}, nil, nil, fc, nil, nil, &SearchQueueMock{}, nil, githubMan, nil, nil, nil, "claude", false),
 				datasourceCore.NewManager(log, nil),
 				nil,
 				githubMan,

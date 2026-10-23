@@ -271,7 +271,7 @@ func Test_NewManager(t *testing.T) {
 			wc := &webchange.Client{}
 			hm := &stubHookManager{}
 			vm := &stubVariableManager{}
-			m := NewManager(slog.New(slog.DiscardHandler), nil, c.Pool, nil, nil, fc, nil, nil, &stubSearchQueue{}, nil, gh, wc, hm, vm, "claude")
+			m := NewManager(slog.New(slog.DiscardHandler), nil, c.Pool, nil, nil, fc, nil, nil, &stubSearchQueue{}, nil, gh, wc, hm, vm, "claude", true)
 
 			require.NotNil(t, m)
 			assert.NotNil(t, m.log)
@@ -285,6 +285,7 @@ func Test_NewManager(t *testing.T) {
 			assert.Same(t, wc, m.webchangeClient)
 			assert.Same(t, hm, m.hookMan)
 			assert.Same(t, vm, m.variableMan)
+			assert.True(t, m.loadToolsOnRequest)
 			assert.Nil(t, m.tree)
 			assert.Nil(t, m.tags)
 

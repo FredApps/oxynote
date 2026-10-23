@@ -1507,6 +1507,9 @@ func Test_input_FetchDocumentChildren(t *testing.T) {
 
 	cc := map[string]struct {
 		ChildrenErr error
+		Children    document.Summaries
+		CheckErr    error
+		Checks      int
 		Result      document.Summaries
 		Err         error
 	}{
@@ -1514,8 +1517,27 @@ func Test_input_FetchDocumentChildren(t *testing.T) {
 			ChildrenErr: assert.AnError,
 			Err:         assert.AnError,
 		},
+		// a parent with children exists, so it is not checked.
 		"Successful fetch": {
-			Result: children,
+			Children: children,
+			Result:   children,
+		},
+		"Unknown parent is refused": {
+			Children: document.Summaries{},
+			CheckErr: sql.ErrNoRows,
+			Checks:   1,
+			Err:      fmt.Errorf("parent %s: %w", _testDocID, ErrUnknownDocument),
+		},
+		"Error returned by db.CheckDocumentExists": {
+			Children: document.Summaries{},
+			CheckErr: assert.AnError,
+			Checks:   1,
+			Err:      assert.AnError,
+		},
+		"Parent without children": {
+			Children: document.Summaries{},
+			Checks:   1,
+			Result:   document.Summaries{},
 		},
 	}
 
@@ -1529,7 +1551,10 @@ func Test_input_FetchDocumentChildren(t *testing.T) {
 						return nil, c.ChildrenErr
 					}
 
-					return children, nil
+					return c.Children, nil
+				},
+				CheckDocumentExistsFunc: func(context.Context, xid.ID, string) error {
+					return c.CheckErr
 				},
 			}
 
@@ -1540,6 +1565,7 @@ func Test_input_FetchDocumentChildren(t *testing.T) {
 			assert.Equal(t, parentID, db.FetchDocumentTreeByDocumentParentIDCalls()[0].ParentID)
 			assert.Equal(t, "org", db.FetchDocumentTreeByDocumentParentIDCalls()[0].OrganizationID)
 			assert.Empty(t, db.FetchDocumentTreeCalls())
+			assert.Len(t, db.CheckDocumentExistsCalls(), c.Checks)
 
 			if err != nil {
 				return

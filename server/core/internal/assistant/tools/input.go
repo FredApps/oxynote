@@ -417,9 +417,28 @@ func (i *input) FetchBranchesByDocument() (map[xid.ID][]document.BranchSummary, 
 	return out, nil
 }
 
-// FetchDocumentChildren returns the direct children of parentID.
+// FetchDocumentChildren returns the direct children of parentID. A
+// parent the organisation does not have is refused rather than listed as
+// childless; only an empty listing needs the check.
 func (i *input) FetchDocumentChildren(parentID null.Value[xid.ID]) (document.Summaries, error) {
-	return i.db.FetchDocumentTreeByDocumentParentID(i.ctx, parentID, i.orgID)
+	children, err := i.db.FetchDocumentTreeByDocumentParentID(i.ctx, parentID, i.orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(children) > 0 {
+		return children, nil
+	}
+
+	if cerr := i.db.CheckDocumentExists(i.ctx, parentID.V, i.orgID); cerr != nil {
+		if errutil.IsNotFound(cerr) {
+			return nil, fmt.Errorf("parent %s: %w", parentID.V, ErrUnknownDocument)
+		}
+
+		return nil, fmt.Errorf("checking parent: %w", cerr)
+	}
+
+	return children, nil
 }
 
 // CreateDocument inserts the document, its maintainer row and its

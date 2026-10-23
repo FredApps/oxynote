@@ -14,10 +14,14 @@ func Test_Manager_newAgent(t *testing.T) {
 	t.Parallel()
 
 	cc := map[string]struct {
-		OmitSummary bool
-		Err         error
+		OmitSummary        bool
+		LoadToolsOnRequest bool
+		Err                error
 	}{
 		"Agent is built": {},
+		"Agent is built with tools loaded on request": {
+			LoadToolsOnRequest: true,
+		},
 		"Summarization needs a model": {
 			// the compaction middlewares are built from the summary
 			// model, so the agent cannot exist without one.
@@ -34,6 +38,8 @@ func Test_Manager_newAgent(t *testing.T) {
 			if c.OmitSummary {
 				m.summary = nil
 			}
+
+			m.loadToolsOnRequest = c.LoadToolsOnRequest
 
 			toolSet := m.ToolSet("org", "user")
 
