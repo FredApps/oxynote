@@ -11,10 +11,6 @@ import {
 	seedQueryData,
 } from "~/composables/api/test-helpers"
 import {
-	stubHexColorContext,
-	stubSelectableColors,
-} from "./editor/test-helpers/theme"
-import {
 	at,
 	clearTeleportedOverlays,
 	findButtonByText,
@@ -32,20 +28,15 @@ const TAG_A = makeXid("taga")
 const TAG_B = makeXid("tagb")
 const UPDATE_URL = `/api/tags/${TAG_A}`
 
-let palette: string[] = []
-
 enableAutoUnmount(afterEach)
 
-// the palette lives on the shared document element, and the query cache,
-// the mocked toast and the popover teleported into <body> are shared by
-// every mount
+// the query cache, the mocked toast and the popover teleported into
+// <body> are shared by every mount
 describe("<TagEditMenu>", { concurrent: false }, () => {
 	beforeEach(() => {
 		clearTeleportedOverlays()
 		clearQueryCache()
 		vi.mocked(toast.custom).mockClear()
-		stubHexColorContext()
-		palette = stubSelectableColors()
 		seedQueryData(["tags", "tree"], tree())
 		mockEndpoint("GET", "/api/tags/tree", () => tree())
 	})
@@ -59,7 +50,7 @@ describe("<TagEditMenu>", { concurrent: false }, () => {
 			.toBe("Production")
 		expect
 			.soft(colorButton(wrapper).get("div").attributes("style"))
-			.toContain("background-color: #e7000b")
+			.toContain("background-color: var(--selectable-color-1)")
 	})
 
 	it("renames the tag, trimmed, and says so once saved", async ({ expect }) => {
@@ -88,9 +79,7 @@ describe("<TagEditMenu>", { concurrent: false }, () => {
 		await wrapper.get("form").trigger("submit")
 		await settleMutations()
 
-		expect
-			.soft(calls.map((call) => call.body))
-			.toEqual([{ color: at(palette, 3) }])
+		expect.soft(calls.map((call) => call.body)).toEqual([{ color: "yellow" }])
 		expect.soft(wrapper.emitted("close")).toHaveLength(1)
 		expect.soft(raisedToasts()).toEqual([
 			expect.objectContaining({
@@ -194,7 +183,7 @@ function productionTag(): TagTreeElement {
 	return {
 		id: TAG_A,
 		tagName: "Production",
-		color: "#e7000b",
+		color: "red",
 		hidden: false,
 		documents: null,
 	}
@@ -206,7 +195,7 @@ function tree(): TagTreeElement[] {
 		{
 			id: TAG_B,
 			tagName: "Staging",
-			color: "#155dfc",
+			color: "blue",
 			hidden: false,
 			documents: null,
 		},

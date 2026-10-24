@@ -33,6 +33,8 @@ const DATA_SOURCE_ID = makeXid("ds")
 const QUERY_URL = `/api/data-sources/${DATA_SOURCE_ID}/query`
 const DOCUMENT_ID = makeXid("doc")
 const BRANCH_ID = makeXid("branch")
+const PALETTE_RED = "oklch(57.7% 0.245 27.325)"
+const PALETTE_GREEN = "oklch(62.7% 0.194 149.214)"
 
 function simulationCheckURL(uid: string): string {
 	return `/api/documents/${DOCUMENT_ID}/branches/${BRANCH_ID}/blocks/${uid}/run`
@@ -104,6 +106,15 @@ function chartNames(wrapper: VueWrapper): string[] {
 describe("<VisualizationContainer>", { concurrent: false }, () => {
 	beforeEach(() => {
 		stubChartColorContext()
+		// happy-dom loads no stylesheet, so the palette has no values
+		document.documentElement.style.setProperty(
+			"--selectable-color-1",
+			PALETTE_RED,
+		)
+		document.documentElement.style.setProperty(
+			"--selectable-color-6",
+			PALETTE_GREEN,
+		)
 		clearQueryCache()
 		useEditorMeta().setEditable(true)
 		useEditorStore().setReviewableDiffActive(false)
@@ -112,7 +123,11 @@ describe("<VisualizationContainer>", { concurrent: false }, () => {
 		useEditorStore().activateMetricBlockConfig(null)
 	})
 
-	afterEach(disposeMockEndpoints)
+	afterEach(() => {
+		document.documentElement.style.removeProperty("--selectable-color-1")
+		document.documentElement.style.removeProperty("--selectable-color-6")
+		disposeMockEndpoints()
+	})
 
 	it("asks for a data source before anything else", async ({ expect }) => {
 		const wrapper = await mountContainer(
@@ -236,6 +251,54 @@ describe("<VisualizationContainer>", { concurrent: false }, () => {
 		expect(
 			wrapper.findComponent({ name: "LineChart" }).props("thresholds"),
 		).toEqual([{ value: 10, label: "warn", color: "#ff0000" }])
+	})
+
+	it("hands the chart a palette threshold colour as css", async ({
+		expect,
+	}) => {
+		mockEndpoint("GET", QUERY_URL, () => seriesResult())
+
+		const wrapper = await mountContainer(
+			metricConfig({
+				thresholds: [{ value: 10, label: "warn", color: "red" }],
+			}),
+		)
+
+		await vi.waitFor(() => {
+			expect(chartNames(wrapper)).toEqual(["LineChart"])
+		}, WAIT_FOR_OPTIONS)
+		expect(
+			wrapper.findComponent({ name: "LineChart" }).props("thresholds"),
+		).toEqual([{ value: 10, label: "warn", color: PALETTE_RED }])
+	})
+
+	it.for([
+		{
+			name: "a palette base colour as css",
+			input: "green",
+			expected: PALETTE_GREEN,
+		},
+		{
+			name: "a base colour saved as css as it is",
+			input: "#00ff00",
+			expected: "#00ff00",
+		},
+	])("hands the gauge $name", async ({ input, expected }, { expect }) => {
+		mockEndpoint("GET", QUERY_URL, () => seriesResult())
+
+		const wrapper = await mountContainer(
+			metricConfig({
+				visualizationType: GenericQueryChartType.Gauge,
+				baseThresholdColor: input,
+			}),
+		)
+
+		await vi.waitFor(() => {
+			expect(chartNames(wrapper)).toEqual(["GaugeChart"])
+		}, WAIT_FOR_OPTIONS)
+		expect(
+			wrapper.findComponent({ name: "GaugeChart" }).props("baseThresholdColor"),
+		).toBe(expected)
 	})
 
 	it("reports the error a single failing query returned", async ({

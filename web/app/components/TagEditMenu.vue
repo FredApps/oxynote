@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import { colorToHex } from "~/assets/css"
 import { showToastMessage } from "./toast"
 
 const props = defineProps<{
@@ -22,8 +21,6 @@ const isNameTaken = computed(
 			(tag) => tag.id !== props.tag.id && tag.tagName === trimmedName.value,
 		),
 )
-// only a changed field is sent, because a tag made before the palette was
-// enforced can hold a colour the server would now refuse
 const changes = computed(() => {
 	const req: TagUpdateRequest = {}
 	if (trimmedName.value !== props.tag.tagName) {
@@ -48,9 +45,7 @@ function pickColor(value: string | undefined) {
 		return
 	}
 
-	// the swatches resolve from theme variables, which are oklch, while a
-	// tag stores hex
-	color.value = colorToHex(value)
+	color.value = value
 }
 
 // the menu closes before the request goes out. The tree already shows the
@@ -118,7 +113,7 @@ async function save() {
 						>
 							<div
 								class="size-3.5 rounded-full transition-colors"
-								:style="{ backgroundColor: color }"
+								:style="{ backgroundColor: paletteColor(color) }"
 							/>
 						</ShadcnUiButton>
 					</ShadcnUiPopoverTrigger>

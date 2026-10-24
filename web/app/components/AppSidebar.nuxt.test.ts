@@ -510,7 +510,7 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 		seedQueryData(["documents", "tree"], [treeElement()])
 		seedQueryData(
 			["tags", "tree"],
-			[{ ...tagElement(TAG_A, "Production", "#22c55e"), hidden: true }],
+			[{ ...tagElement(TAG_A, "Production", "green"), hidden: true }],
 		)
 
 		const wrapper = await mountSidebar()
@@ -735,8 +735,8 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 	// in here supplies its own
 	function seededTags() {
 		return [
-			tagElement(TAG_A, "Production", "#22c55e"),
-			tagElement(TAG_B, "Staging", "#f97316"),
+			tagElement(TAG_A, "Production", "green"),
+			tagElement(TAG_B, "Staging", "orange"),
 		]
 	}
 
@@ -843,7 +843,7 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 			await openSubMenu(t("sidebar.item-dropdown-menu-buttons.edit-tag"))
 
 			expect(wrapper.getComponent(TagEditMenu).props("tag")).toEqual(
-				tagElement(TAG_A, "Production", "#22c55e"),
+				tagElement(TAG_A, "Production", "green"),
 			)
 			expect(calls).toHaveLength(0)
 		})
@@ -924,8 +924,8 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 		}) => {
 			stubQueries({
 				tags: [
-					tagElement(TAG_A, "Production", "#22c55e"),
-					{ ...tagElement(TAG_B, "Staging", "#f97316"), hidden: true },
+					tagElement(TAG_A, "Production", "green"),
+					{ ...tagElement(TAG_B, "Staging", "orange"), hidden: true },
 				],
 			})
 			const calls = mockEndpoint(
@@ -950,8 +950,8 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 		it("keeps the section while every tag is hidden", async ({ expect }) => {
 			stubQueries({
 				tags: [
-					{ ...tagElement(TAG_A, "Production", "#22c55e"), hidden: true },
-					{ ...tagElement(TAG_B, "Staging", "#f97316"), hidden: true },
+					{ ...tagElement(TAG_A, "Production", "green"), hidden: true },
+					{ ...tagElement(TAG_B, "Staging", "orange"), hidden: true },
 				],
 			})
 
@@ -972,8 +972,8 @@ describe("<AppSidebar>", { concurrent: false }, () => {
 		it("keeps a hidden tag out of the section", async ({ expect }) => {
 			stubQueries({
 				tags: [
-					{ ...tagElement(TAG_A, "Production", "#22c55e"), hidden: true },
-					tagElement(TAG_B, "Staging", "#f97316"),
+					{ ...tagElement(TAG_A, "Production", "green"), hidden: true },
+					tagElement(TAG_B, "Staging", "orange"),
 				],
 			})
 
