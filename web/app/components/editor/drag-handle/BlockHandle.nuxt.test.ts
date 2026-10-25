@@ -52,9 +52,9 @@ function makeHandleEditor(
 		unregisterPlugin: vi.fn(),
 		commands: {
 			setMeta: vi.fn(),
-			hasNodeComment: () => false,
 			focus: vi.fn(),
 		},
+		can: () => ({ hasNodeComment: () => false }),
 		state: {
 			doc: {
 				nodeAt: () => node,
