@@ -412,6 +412,7 @@ function methodVariant(method: AuthMethod) {
 					{{ $t("onboarding.signup.email-password-form.continue") }}
 				</ShadcnUiButton>
 				<ShadcnUiButton
+					v-if="!isEmailPasswordOnly"
 					type="button"
 					size="lg"
 					variant="ghost"

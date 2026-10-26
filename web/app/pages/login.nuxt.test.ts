@@ -83,6 +83,29 @@ describe("<login>", { concurrent: false }, () => {
 		expect(wrapper.find('input[type="email"]').exists()).toBe(true)
 		expect(wrapper.find('input[type="password"]').exists()).toBe(true)
 	})
+
+	it("opens the password reset form when email/password is the only enabled method", async ({
+		expect,
+	}) => {
+		seedAuthConfig({
+			methods: ["email-password"],
+		})
+		const wrapper = await mountSuspended(Login)
+
+		await findButtonByText(
+			wrapper,
+			t("onboarding.login.forgot-password.placeholders.reset"),
+		).trigger("click")
+
+		expect(wrapper.find('input[type="password"]').exists()).toBe(false)
+		expect(
+			wrapper
+				.find(
+					`input[placeholder="${t("onboarding.login.password-reset-form.email-placeholder")}"]`,
+				)
+				.exists(),
+		).toBe(true)
+	})
 })
 
 async function openEmailPasswordForm() {
