@@ -173,7 +173,7 @@ func Test_Handler_InitializeOrganization(t *testing.T) {
 				return
 			}
 
-			assert.Equal(t, "Demo", ff[0].Ds.Name)
+			assert.Equal(t, "Demo Metrics", ff[0].Ds.Name)
 			assert.Equal(t, datasource.TypePrometheus, ff[0].Ds.Type)
 			assert.Equal(t, demo.URL, ff[0].Ds.URL)
 			assert.Equal(t, "org2", ff[0].Ds.OrganizationID)

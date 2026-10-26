@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,6 +59,53 @@ func prometheusAPIHandler() http.Handler {
 	mux.HandleFunc("/api/v1/series", respond(`{"status":"success","data":[{"__name__":"up","job":"prometheus"}]}`))
 
 	return mux
+}
+
+// lokiAPIHandler serves canned successful responses for every Loki API
+// endpoint a log client exercises. A query_range for a volume query
+// answers with series, any other with streams.
+func lokiAPIHandler() http.Handler {
+	respond := func(body string) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(body)) //nolint:errcheck,gosec // error provides no meaningful info
+		}
+	}
+
+	streams := respond(`{"status":"success","data":{"resultType":"streams","encodingFlags":["categorize-labels"],"result":[{"stream":{"app":"api"},"values":[["1704067200000000000","started",{}]]}]}}`)
+	matrix := respond(`{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"detected_level":"info"},"values":[[1704067260,"3"]]}]}}`)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/loki/api/v1/status/buildinfo", respond(`{"version":"3.7.9"}`))
+	mux.HandleFunc("/loki/api/v1/query_range", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Query().Get("query"), "sum by") {
+			matrix(w, r)
+
+			return
+		}
+
+		streams(w, r)
+	})
+	mux.HandleFunc("/loki/api/v1/labels", respond(`{"status":"success","data":["app"]}`))
+	mux.HandleFunc("/loki/api/v1/label/app/values", respond(`{"status":"success","data":["api"]}`))
+
+	return mux
+}
+
+// prepLokiServer starts a fake Loki serving the provided handler. Its
+// cleanup also drops the shared transport's keep-alive connections so
+// goleak stays clean.
+func prepLokiServer(t *testing.T, h http.Handler) *httptest.Server {
+	t.Helper()
+
+	srv := httptest.NewServer(h)
+
+	t.Cleanup(func() {
+		srv.Close()
+		http.DefaultTransport.(*http.Transport).CloseIdleConnections()
+	})
+
+	return srv
 }
 
 // prepRunner builds the runner for a data source of the given type,
@@ -270,6 +318,85 @@ func Test_runner_Prometheus(t *testing.T) {
 			series, serr := client.Series(context.Background(), []string{"up"}, _testTimeRange)
 			require.NoError(t, serr)
 			assert.NotNil(t, series)
+		})
+	}
+}
+
+func Test_runner_Logs(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Type    Type
+		URL     string
+		Handler http.Handler
+		Written int
+		Err     error
+	}{
+		"A Loki data source hands out its client": {
+			Type:    TypeLoki,
+			Handler: lokiAPIHandler(),
+		},
+		"The demo answers as Loki": {
+			Type: TypeLoki,
+			URL:  demo.URL,
+		},
+		"A data source of another type does not": {
+			Type: TypePrometheus,
+			Err:  assert.AnError,
+		},
+		"A Loki data source with no address": {
+			Type:    TypeLoki,
+			Written: 1,
+			Err:     assert.AnError,
+		},
+		"A connection the data source refused": {
+			Type:    TypeLoki,
+			Handler: testutil.JSONHandler("/loki/api/v1/status/buildinfo", http.StatusUnauthorized, `{}`),
+			Written: 1,
+			Err:     assert.AnError,
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			url := c.URL
+			if c.Handler != nil {
+				url = prepLokiServer(t, c.Handler).URL
+			}
+
+			store := &StatusStoreMock{}
+
+			client, err := prepRunner(c.Type, url, store).Logs(context.Background())
+
+			testutil.AssertEqualError(t, c.Err, err)
+			assert.Len(t, store.UpdateDataSourceStatusCalls(), c.Written)
+
+			if c.Err != nil {
+				assert.Nil(t, client)
+				return
+			}
+
+			require.NotNil(t, client)
+
+			// the client the accessor hands back is the live one: every
+			// read it offers reaches the data source.
+			lines, lerr := client.Logs(context.Background(), `{app="api"}`, _testTimeRange, processor.LogsPage{Limit: 10})
+			require.NoError(t, lerr)
+			assert.NotNil(t, lines)
+
+			volume, verr := client.LogsVolume(context.Background(), `{app="api"}`, _testTimeRange)
+			require.NoError(t, verr)
+			assert.NotNil(t, volume)
+
+			fields, ferr := client.LogFields(context.Background(), "", _testTimeRange)
+			require.NoError(t, ferr)
+			assert.NotEmpty(t, fields.Fields)
+
+			values, aerr := client.LogFieldValues(context.Background(), "app", "", _testTimeRange)
+			require.NoError(t, aerr)
+			assert.NotNil(t, values)
 		})
 	}
 }
@@ -553,6 +680,9 @@ func Test_runner_ensurePrepared(t *testing.T) {
 		"PostgreSQL":          {Type: TypePostgreSQL},
 		"MySQL":               {Type: TypeMySQL},
 		"MariaDB":             {Type: TypeMariaDB},
+		"Loki":                {Type: TypeLoki},
+		"Demo Loki":           {Type: TypeLoki, URL: demo.URL},
+		"Unknown demo Loki":   {Type: TypeLoki, URL: demo.Scheme + "nope", Err: demo.ErrUnknownSource},
 		"Unknown type":        {Type: Type("bogus"), Err: assert.AnError},
 	}
 
@@ -621,6 +751,51 @@ func Test_runner_prometheusClient(t *testing.T) {
 			}
 
 			assert.IsType(t, c.Client, client)
+		})
+	}
+}
+
+func Test_runner_lokiClient(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		URL    string
+		Client connectionTester
+		Err    error
+	}{
+		"Demo data source": {
+			URL:    demo.URL,
+			Client: &demo.Client{},
+		},
+		"Demo scheme naming a source that does not exist": {
+			URL: demo.Scheme + "marketing",
+			Err: demo.ErrUnknownSource,
+		},
+		"Real server": {
+			URL:    "http://loki.test:3100",
+			Client: &processor.Loki{},
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			r := prepRunner(TypeLoki, c.URL, nil)
+
+			client, err := r.lokiClient()
+			testutil.AssertEqualError(t, c.Err, err)
+
+			if err != nil {
+				assert.Nil(t, client)
+				return
+			}
+
+			assert.IsType(t, c.Client, client)
+
+			if c.URL == demo.URL {
+				assert.Same(t, r.demo, client, "the demo answers as Loki out of the client the manager shares")
+			}
 		})
 	}
 }

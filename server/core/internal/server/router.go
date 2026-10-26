@@ -288,6 +288,14 @@ func (s *Server) router() chi.Router {
 			ssr.Delete("/", s.handlers.datasource.DeleteDataSource)
 			ssr.Get("/connection", s.handlers.datasource.TestDataSourceConnection)
 			ssr.Get("/query", s.handlers.datasource.QueryDataSource)
+			ssr.Route("/logs", func(sssr chi.Router) {
+				sssr.Get("/", s.handlers.datasource.FetchDataSourceLogs)
+				sssr.Get("/volume", s.handlers.datasource.FetchDataSourceLogVolume)
+				sssr.Route("/fields", func(ssssr chi.Router) {
+					ssssr.Get("/", s.handlers.datasource.FetchDataSourceLogFields)
+					ssssr.Get("/{field}/values", s.handlers.datasource.FetchDataSourceLogFieldValues)
+				})
+			})
 			ssr.Route("/prometheus", func(sssr chi.Router) {
 				sssr.Get("/metadata", s.handlers.datasource.FetchPrometheusDataSourceMetadata)
 				sssr.Get("/series", s.handlers.datasource.FetchPrometheusDataSourceSeries)

@@ -170,6 +170,14 @@ func wasExecutorSQLCalled(count int) check {
 	}
 }
 
+// wasExecutorLogsCalled returns a check asserting the number of
+// Runner.Logs calls.
+func wasExecutorLogsCalled(count int) check {
+	return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		require.Len(t, exec.runner.LogsCalls(), count)
+	}
+}
+
 // stubDataSource returns a data source owned by the test organization.
 func stubDataSource(typ datasourceCore.Type) *datasourceCore.DataSource {
 	return &datasourceCore.DataSource{
@@ -223,12 +231,14 @@ func prepRequest(method, target, body string, session bool, id string) *http.Req
 // refusal that stands in for a data source that cannot serve any of
 // them.
 type clientMocks struct {
-	// prometheus, sql, postgreSQL and mySQL are the clients the
-	// accessors return. A check reads back what the handler asked them.
+	// prometheus, sql, postgreSQL, mySQL and logSource are the clients
+	// the accessors return. A check reads back what the handler asked
+	// them.
 	prometheus *datasourceMock.Prometheus
 	sql        *datasourceMock.SQL
 	postgreSQL *datasourceMock.PostgreSQL
 	mySQL      *datasourceMock.MySQL
+	logSource  *datasourceMock.Logs
 
 	// status and statusErr are what TestConnection reports.
 	status    processor.ConnectionStatus
@@ -313,6 +323,10 @@ func prepHandler(db *DBMock, clients *clientMocks, vars *VariableManagerMock) (*
 		clients.mySQL = &datasourceMock.MySQL{}
 	}
 
+	if clients.logSource == nil {
+		clients.logSource = &datasourceMock.Logs{}
+	}
+
 	if vars == nil {
 		vars = &VariableManagerMock{}
 	}
@@ -353,6 +367,13 @@ func prepHandler(db *DBMock, clients *clientMocks, vars *VariableManagerMock) (*
 			}
 
 			return clients.mySQL, nil
+		},
+		LogsFunc: func(context.Context) (datasourceCore.Logs, error) {
+			if clients.err != nil {
+				return nil, clients.err
+			}
+
+			return clients.logSource, nil
 		},
 	}
 

@@ -138,7 +138,7 @@ both**; a swallowed error is logged with a comment saying why.
 ## Time, IDs, numbers, enums, validation
 
 - `timeutil.Now()`, never `time.Now()` in production code. Durations are
-  `_`-prefixed documented package vars.
+  `_`-prefixed documented consts, `var` only when a test shortens one.
 - IDs are `rs/xid`. Exact numerics are `shopspring/decimal`; non-trivial
   decimal math lives in `pkg/mathutil`, never inline.
 - Nullable columns use `guregu/null/v5`, never empty-string sentinels.

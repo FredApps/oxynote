@@ -79,6 +79,7 @@ func Test_NewClient(t *testing.T) {
 	assert.NotNil(t, c.engine)
 	assert.NotNil(t, c.parser)
 	assert.Len(t, c.registry, 15)
+	assert.Len(t, c.logSources, 25)
 
 	// the client holds one registry for its lifetime: the walks behind it
 	// cache the history they replay, and rebuilding it per query would

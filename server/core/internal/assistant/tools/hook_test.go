@@ -582,7 +582,7 @@ func Test_createHook_Execute(t *testing.T) {
 			Args:          `{` + targetArgs(_stubBranchID) + `,` + scheduled + `,"block_uid":"nope"}`,
 			BranchFetches: 1,
 			Creates:       1,
-			Err:           fmt.Errorf("block %s: %w", "nope", errUnknownBlock),
+			Err:           fmt.Errorf("block %s: %w", "nope", _errUnknownBlock),
 		},
 		"GitHub tracking without the app": {
 			DB:            stubHookDB(),
@@ -871,7 +871,7 @@ func Test_updateHook_Execute(t *testing.T) {
 			DB:          stubHookDB(),
 			Args:        `{` + hookArgs(_unknownHookID) + `,"settings":{"type":"scheduled-reminder","schedule":"` + _stubSchedule + `"}}`,
 			HookFetches: 1,
-			Err:         fmt.Errorf("hook %s on document %s: %w", _unknownHookID, _testDocID, errUnknownHook),
+			Err:         fmt.Errorf("hook %s on document %s: %w", _unknownHookID, _testDocID, _errUnknownHook),
 		},
 		"Settings without a type": {
 			DB:   stubHookDB(),
@@ -1065,7 +1065,7 @@ func Test_deleteHook_Execute(t *testing.T) {
 			DB:          stubHookDB(),
 			Args:        `{` + hookArgs(_unknownHookID) + `}`,
 			HookFetches: 1,
-			Err:         fmt.Errorf("hook %s on document %s: %w", _unknownHookID, _testDocID, errUnknownHook),
+			Err:         fmt.Errorf("hook %s on document %s: %w", _unknownHookID, _testDocID, _errUnknownHook),
 		},
 		"Error returned by hookMan.DeleteHook": {
 			DB:          stubHookDB(),
@@ -1137,7 +1137,7 @@ func Test_hookRefArgs_fetchHookAndBranch(t *testing.T) {
 		"Unknown hook": {
 			DB:     stubHookDB(),
 			HookID: _unknownHookID,
-			Err:    fmt.Errorf("fetch hook: %w", fmt.Errorf("hook %s on document %s: %w", _unknownHookID, _testDocID, errUnknownHook)),
+			Err:    fmt.Errorf("fetch hook: %w", fmt.Errorf("hook %s on document %s: %w", _unknownHookID, _testDocID, _errUnknownHook)),
 		},
 		"Error returned by db.FetchDocumentByBranchID": {
 			DB:            failingDoc,

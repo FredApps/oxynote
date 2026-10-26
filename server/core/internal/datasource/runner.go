@@ -108,6 +108,11 @@ func (r *runner) SQL(ctx context.Context) (SQL, error) {
 	return connect[SQL](ctx, r, TypePostgreSQL, TypeMariaDB, TypeMySQL)
 }
 
+// Logs returns the data source's log client.
+func (r *runner) Logs(ctx context.Context) (Logs, error) {
+	return connect[Logs](ctx, r, TypeLoki)
+}
+
 // connect resolves the client of the wanted type, tests the connection
 // and records what it found.
 //
@@ -203,6 +208,13 @@ func (r *runner) ensurePrepared() error {
 		r.client = processor.NewPostgreSQL(newStateInput(r.ds.URL, r.ds.Credentials))
 	case TypeMariaDB, TypeMySQL:
 		r.client = processor.NewMySQL(newStateInput(r.ds.URL, r.ds.Credentials))
+	case TypeLoki:
+		client, err := r.lokiClient()
+		if err != nil {
+			return err
+		}
+
+		r.client = client
 	default:
 		return errors.New("invalid data source type")
 	}
@@ -226,6 +238,21 @@ func (r *runner) prometheusClient() (connectionTester, error) {
 	}
 
 	return processor.NewPrometheus(newStateInput(r.ds.URL, r.ds.Credentials)), nil
+}
+
+// lokiClient resolves which Loki a data source speaks to. The demo URL
+// is the same one the demo Prometheus answers at, served as Loki for this
+// type.
+func (r *runner) lokiClient() (connectionTester, error) {
+	if r.ds.URL == demo.URL {
+		return r.demo, nil
+	}
+
+	if strings.HasPrefix(r.ds.URL, demo.Scheme) {
+		return nil, demo.ErrUnknownSource
+	}
+
+	return processor.NewLoki(newStateInput(r.ds.URL, r.ds.Credentials)), nil
 }
 
 // Runner operates one data source: it hands out the typed client for
@@ -252,6 +279,9 @@ type Runner interface {
 
 	// SQL should return the data source's dialect-agnostic SQL client.
 	SQL(ctx context.Context) (SQL, error)
+
+	// Logs should return the data source's log client.
+	Logs(ctx context.Context) (Logs, error)
 }
 
 // StatusStore records what a data source's connection last reported.
@@ -316,6 +346,28 @@ type MySQL interface {
 
 	// Query executes a SQL query against the data source.
 	Query(ctx context.Context, q string, tr processor.TimeRange) (*processor.MySQLQueryResult, error)
+}
+
+// Logs represents a log data source processor.
+//
+//go:generate ../../scripts/codegen/mock Logs logs
+type Logs interface {
+	connectionTester
+
+	// Logs should read one page of the lines q matches in the window.
+	Logs(ctx context.Context, q string, tr processor.TimeRange, page processor.LogsPage) (*processor.LogsResult, error)
+
+	// LogsVolume should count the lines q matches per time bucket, split
+	// by level.
+	LogsVolume(ctx context.Context, q string, tr processor.TimeRange) (*processor.QueryResult, error)
+
+	// LogFields should list the field names the lines carry in the
+	// window, narrowed to the lines q matches when q is given.
+	LogFields(ctx context.Context, q string, tr processor.TimeRange) (*processor.LogFieldsResult, error)
+
+	// LogFieldValues should list the values one field takes in the
+	// window, narrowed to the lines q matches when q is given.
+	LogFieldValues(ctx context.Context, field, q string, tr processor.TimeRange) (*processor.LogFieldValuesResult, error)
 }
 
 // connectionTester is what every processor can do regardless of what it
