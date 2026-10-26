@@ -66,6 +66,11 @@ const showEmailPasswordForm = ref(false)
 const enabledMethods = computed(
 	() => fetchAuthConfig.state.value.data?.methods ?? [],
 )
+const isEmailPasswordOnly = computed(
+	() =>
+		enabledMethods.value.length === 1 &&
+		enabledMethods.value.includes("email-password"),
+)
 const noMethodsConfigured = computed(
 	() =>
 		fetchAuthConfig.state.value.status === "success" &&
@@ -241,7 +246,10 @@ function methodVariant(method: AuthMethod) {
 					{{ $t("onboarding.signup.title") }}
 				</div>
 			</div>
-			<div v-if="!showEmailPasswordForm" class="flex w-full flex-col gap-3">
+			<div
+				v-if="!showEmailPasswordForm && !isEmailPasswordOnly"
+				class="flex w-full flex-col gap-3"
+			>
 				<ShadcnUiButton
 					v-if="enabledMethods.includes('google')"
 					size="lg"

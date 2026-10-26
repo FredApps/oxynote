@@ -12,6 +12,7 @@ describe("<login>", { concurrent: false }, () => {
 		expect,
 	}) => {
 		seedAuthConfig({
+			methods: ["google", "email-password"],
 			singleOrganization: true,
 			defaultAdmin: {
 				email: "admin@example.com",
@@ -42,6 +43,7 @@ describe("<login>", { concurrent: false }, () => {
 		expect,
 	}) => {
 		seedAuthConfig({
+			methods: ["google", "email-password"],
 			singleOrganization: true,
 			defaultAdmin: { email: "admin@example.com", password: null },
 		})
@@ -55,6 +57,7 @@ describe("<login>", { concurrent: false }, () => {
 		expect,
 	}) => {
 		seedAuthConfig({
+			methods: ["google", "email-password"],
 			singleOrganization: false,
 			defaultAdmin: {
 				email: "admin@example.com",
@@ -65,6 +68,20 @@ describe("<login>", { concurrent: false }, () => {
 		const wrapper = await openEmailPasswordForm()
 
 		expect(wrapper.text()).not.toContain("admin@example.com")
+	})
+
+	it("shows the email/password form immediately when it is the only enabled method", async ({
+		expect,
+	}) => {
+		seedAuthConfig({
+			methods: ["email-password"],
+		})
+
+		const wrapper = await mountSuspended(Login)
+
+		expect(wrapper.find("form").exists()).toBe(true)
+		expect(wrapper.find('input[type="email"]').exists()).toBe(true)
+		expect(wrapper.find('input[type="password"]').exists()).toBe(true)
 	})
 })
 

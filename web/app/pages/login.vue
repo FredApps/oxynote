@@ -51,6 +51,11 @@ const resetEmail = ref("")
 const enabledMethods = computed(
 	() => fetchAuthConfig.state.value.data?.methods ?? [],
 )
+const isEmailPasswordOnly = computed(
+	() =>
+		enabledMethods.value.length === 1 &&
+		enabledMethods.value.includes("email-password"),
+)
 // shown only while the default password still works.
 const defaultAdminLogin = computed(() => {
 	const admin = defaultAdmin.value
@@ -281,7 +286,10 @@ function methodVariant(method: AuthMethod) {
 					{{ $t("onboarding.login.title") }}
 				</div>
 			</div>
-			<div v-if="view === 'methods'" class="flex w-full flex-col gap-3">
+			<div
+				v-if="view === 'methods' && !isEmailPasswordOnly"
+				class="flex w-full flex-col gap-3"
+			>
 				<ShadcnUiButton
 					v-if="enabledMethods.includes('google')"
 					size="lg"
@@ -354,7 +362,7 @@ function methodVariant(method: AuthMethod) {
 				</div>
 			</div>
 			<form
-				v-else-if="view === 'email-password'"
+				v-else-if="view === 'email-password' || isEmailPasswordOnly"
 				class="flex w-full flex-col gap-3"
 				@submit="onEmailPasswordSubmit"
 			>
@@ -466,6 +474,7 @@ function methodVariant(method: AuthMethod) {
 					{{ $t("onboarding.login.email-password-form.continue") }}
 				</ShadcnUiButton>
 				<ShadcnUiButton
+					v-if="!isEmailPasswordOnly"
 					type="button"
 					size="lg"
 					variant="ghost"
