@@ -130,6 +130,31 @@ func Test_MySQLQueryResult_Transform(t *testing.T) {
 				},
 			},
 		},
+		// MySQL types a $__timeGroupAlias bucket as DECIMAL, so the time
+		// arrives as a numeric string.
+		"Time column as DECIMAL string": {
+			Result: MySQLQueryResult{
+				Columns:     []string{"time", "value"},
+				ColumnTypes: []string{"DECIMAL", "BIGINT"},
+				Rows: [][]any{
+					{"1700000000", int64(10)},
+					{"1700003600", int64(20)},
+				},
+			},
+			ChartType: ChartTypeLine,
+			Expected: QueryResult{
+				Status: QueryStatusOK,
+				Data: []QueryResultSeries{
+					{
+						Labels: map[string]string{},
+						Metrics: [][2]any{
+							{int64(1700000000), float64(10)},
+							{int64(1700003600), float64(20)},
+						},
+					},
+				},
+			},
+		},
 		"Single value column with labels": {
 			Result: MySQLQueryResult{
 				Columns: []string{"time", "host", "value"},
@@ -853,6 +878,11 @@ func Test_mysqlParseTimestamp(t *testing.T) {
 		},
 		"RFC3339 string with fraction": {
 			Value:  "2023-11-14T22:13:20.5Z",
+			Result: 1700000000,
+			OK:     true,
+		},
+		"Numeric string": {
+			Value:  "1700000000",
 			Result: 1700000000,
 			OK:     true,
 		},

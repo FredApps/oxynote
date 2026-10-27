@@ -480,7 +480,7 @@ func mysqlCheckReadOnly(ctx context.Context, db *sql.DB) (bool, error) {
 }
 
 // mysqlParseTimestamp parses a timestamp value from a MySQL result row.
-// It handles float64 (unix seconds), int64 (unix seconds), time.Time, and string (RFC3339) values.
+// It handles float64 (unix seconds), int64 (unix seconds), time.Time, and string (unix seconds or RFC3339) values.
 func mysqlParseTimestamp(v any) (int64, bool) {
 	switch val := v.(type) {
 	case float64:
@@ -490,6 +490,12 @@ func mysqlParseTimestamp(v any) (int64, bool) {
 	case time.Time:
 		return val.Unix(), true
 	case string:
+		// MySQL types a $__timeGroup bucket as DECIMAL, which the driver
+		// hands over as []byte and Query converts to a string.
+		if n, err := strconv.ParseFloat(val, 64); err == nil {
+			return int64(n), true
+		}
+
 		t, err := time.Parse(time.RFC3339Nano, val)
 		if err != nil {
 			t, err = time.Parse(time.RFC3339, val)
