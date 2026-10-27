@@ -17,10 +17,10 @@ import {
 
 const MENU_CLOSE_ANIMATION_MS = 150
 
-function hook(blockId: string, score: number): DocumentHook {
+function hook(blockId: string, triggered: boolean): DocumentHook {
 	return {
 		blockId: blockId,
-		score: score,
+		triggered: triggered,
 		state: {},
 		status: "active",
 	} as unknown as DocumentHook
@@ -30,7 +30,7 @@ function hook(blockId: string, score: number): DocumentHook {
 function failedHook(blockId: string): DocumentHook {
 	return {
 		blockId: blockId,
-		score: 0,
+		triggered: true,
 		state: {},
 		status: "unreachable_url",
 	} as unknown as DocumentHook
@@ -181,7 +181,7 @@ describe("<BlockHandle>", { concurrent: false }, () => {
 		expect,
 	}) => {
 		const wrapper = await mountHandle({
-			activeBranchHooks: [hook("block-1", 1)],
+			activeBranchHooks: [hook("block-1", false)],
 		})
 		hoverNode(wrapper, 10)
 		await nextTick()
@@ -195,7 +195,7 @@ describe("<BlockHandle>", { concurrent: false }, () => {
 		expect,
 	}) => {
 		const wrapper = await mountHandle({
-			activeBranchHooks: [hook("block-1", 1), hook("block-1", 0)],
+			activeBranchHooks: [hook("block-1", false), hook("block-1", true)],
 		})
 		hoverNode(wrapper, 10)
 		await nextTick()
@@ -209,7 +209,7 @@ describe("<BlockHandle>", { concurrent: false }, () => {
 		expect,
 	}) => {
 		const wrapper = await mountHandle({
-			activeBranchHooks: [hook("block-1", 1), failedHook("block-1")],
+			activeBranchHooks: [hook("block-1", false), failedHook("block-1")],
 		})
 		hoverNode(wrapper, 10)
 		await nextTick()
@@ -223,7 +223,7 @@ describe("<BlockHandle>", { concurrent: false }, () => {
 		expect,
 	}) => {
 		const wrapper = await mountHandle({
-			activeBranchHooks: [hook("block-1", 0), failedHook("block-1")],
+			activeBranchHooks: [hook("block-1", true), failedHook("block-1")],
 		})
 		hoverNode(wrapper, 10)
 		await nextTick()
@@ -235,7 +235,7 @@ describe("<BlockHandle>", { concurrent: false }, () => {
 
 	it("ignores hooks belonging to other blocks", async ({ expect }) => {
 		const wrapper = await mountHandle({
-			activeBranchHooks: [hook("block-2", 0)],
+			activeBranchHooks: [hook("block-2", true)],
 		})
 		hoverNode(wrapper, 10)
 		await nextTick()
@@ -297,7 +297,7 @@ describe("<BlockHandle>", { concurrent: false }, () => {
 	})
 
 	it("hands the target's hooks to the hook menu", async ({ expect }) => {
-		const targetBranchHooks = [hook("block-1", 1)]
+		const targetBranchHooks = [hook("block-1", false)]
 		const wrapper = await mountHandle({ targetBranchHooks: targetBranchHooks })
 		hoverNode(wrapper, 10)
 		await nextTick()

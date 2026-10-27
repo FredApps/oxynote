@@ -28,7 +28,7 @@ func storedHook() hookCore.Hook {
 		DocumentID:     null.ValueFrom(_documentID),
 		OrganizationID: null.StringFrom("org1"),
 		BranchID:       null.ValueFrom(_branchID),
-		Settings:       processor.Settings(`{"scale":"linear"}`),
+		Settings:       processor.Settings(`{"duration":"24h"}`),
 		State:          null.ValueFrom(processor.State(`{}`)),
 	}
 }

@@ -28,7 +28,6 @@ import (
 	"github.com/oxynote/oxynote/server/core/pkg/sqlutil"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/rs/xid"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
@@ -257,10 +256,9 @@ func stubHook() *hook.Hook {
 		DocumentID:     null.ValueFrom(_testDocID),
 		OrganizationID: null.StringFrom("org"),
 		BranchID:       null.ValueFrom(_stubBranchID),
-		Settings:       processor.Settings(`{"scale":"linear","duration":"custom","schedule":"2030-01-01T00:00:00Z"}`),
-		State:          null.ValueFrom(processor.State(`{"startedAt":"2026-01-01T00:00:00Z"}`)),
+		Settings:       processor.Settings(`{"duration":"custom","schedule":"2030-01-01T00:00:00Z"}`),
+		State:          null.ValueFrom(processor.State(`{}`)),
 		Status:         processor.StatusActive,
-		Score:          decimal.NewFromInt(100),
 		CreatedAt:      time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
@@ -297,7 +295,7 @@ func stubBranches(mainProtected, draftProtected bool) func(context.Context, xid.
 }
 
 // _stubSchedule is the schedule every scheduled-reminder argument stub
-// carries, far enough ahead that a reset scores it fresh.
+// carries, far enough ahead that a reset leaves it untriggered.
 const _stubSchedule = "2030-01-01T00:00:00Z"
 
 // _stubBranchName is the non-default branch every branch stub lists.
@@ -2573,7 +2571,7 @@ func Test_input_FetchHook(t *testing.T) {
 func Test_input_CreateHook(t *testing.T) {
 	t.Parallel()
 
-	scheduled := processor.Settings(`{"scale":"linear","duration":"custom","schedule":"` + _stubSchedule + `"}`)
+	scheduled := processor.Settings(`{"duration":"custom","schedule":"` + _stubSchedule + `"}`)
 
 	failing := stubHookManager()
 	failing.CreateHookFunc = func(context.Context, hook.CreateInput, xid.ID, string, string) (*hook.Hook, error) {
@@ -2719,13 +2717,13 @@ func Test_input_UpdateHook(t *testing.T) {
 		"Error returned by hookMan.UpdateHook": {
 			DB:       stubHookDB(),
 			Man:      failing,
-			Settings: processor.Settings(`{"scale":"linear","duration":"custom","schedule":"2031-01-01T00:00:00Z"}`),
+			Settings: processor.Settings(`{"duration":"custom","schedule":"2031-01-01T00:00:00Z"}`),
 			Updates:  1,
 			Err:      assert.AnError,
 		},
 		"Updated and recorded": {
 			DB:       stubHookDB(),
-			Settings: processor.Settings(`{"scale":"linear","duration":"custom","schedule":"2031-01-01T00:00:00Z"}`),
+			Settings: processor.Settings(`{"duration":"custom","schedule":"2031-01-01T00:00:00Z"}`),
 			Updates:  1,
 		},
 	}

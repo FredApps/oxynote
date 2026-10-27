@@ -1158,8 +1158,8 @@ func (i *input) CreateHook(documentID, branchID xid.ID, blockUID string, tp hook
 	return hk, nil
 }
 
-// UpdateHook replaces the hook's settings and resets its score and state,
-// as a fresh hook with those settings would have them.
+// UpdateHook replaces the hook's settings and resets its triggered flag and
+// state, as a fresh hook with those settings would have them.
 func (i *input) UpdateHook(hk *hook.Hook, settings processor.Settings) error {
 	updated, err := i.hookMan.UpdateHook(i.ctx, hk.ID, hk.DocumentID.V, i.orgID, hook.UpdateInput{Settings: settings}, i.userID)
 	if err != nil {
@@ -1171,7 +1171,8 @@ func (i *input) UpdateHook(hk *hook.Hook, settings processor.Settings) error {
 	return nil
 }
 
-// ResetHook restores the hook's score and state, keeping its settings.
+// ResetHook restores the hook's triggered flag and state, keeping its
+// settings.
 func (i *input) ResetHook(hk *hook.Hook) error {
 	reset, err := i.hookMan.ResetHook(i.ctx, hk.ID, hk.DocumentID.V, i.orgID)
 	if err != nil {

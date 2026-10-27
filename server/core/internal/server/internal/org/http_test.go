@@ -1288,7 +1288,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 						DocumentID:     null.ValueFrom(xid.New()),
 						OrganizationID: null.StringFrom("org2"),
 						BranchID:       null.ValueFrom(xid.New()),
-						Settings:       processor.Settings(`{"scale":"linear"}`),
+						Settings:       processor.Settings(`{"duration":"24h"}`),
 						State:          null.ValueFrom(processor.State(`{}`)),
 						Status:         processor.StatusActive,
 					}}, nil
@@ -1429,7 +1429,7 @@ func Test_Handler_TeardownOrganization(t *testing.T) {
 						DocumentID:     null.ValueFrom(xid.New()),
 						OrganizationID: null.StringFrom("org2"),
 						BranchID:       null.ValueFrom(xid.New()),
-						Settings:       processor.Settings(`{"scale":"linear"}`),
+						Settings:       processor.Settings(`{"duration":"24h"}`),
 						State:          null.ValueFrom(processor.State(`{}`)),
 						Status:         processor.StatusActive,
 					}}, nil

@@ -139,8 +139,7 @@ both**; a swallowed error is logged with a comment saying why.
 
 - `timeutil.Now()`, never `time.Now()` in production code. Durations are
   `_`-prefixed documented consts, `var` only when a test shortens one.
-- IDs are `rs/xid`. Exact numerics are `shopspring/decimal`; non-trivial
-  decimal math lives in `pkg/mathutil`, never inline.
+- IDs are `rs/xid`. Exact numerics are `shopspring/decimal`.
 - Nullable columns use `guregu/null/v5`, never empty-string sentinels.
 - Typed string enums: the `const` block precedes the type, values
   kebab-case, each variant documented (or one `// All available X
@@ -151,11 +150,10 @@ both**; a swallowed error is logged with a comment saying why.
   exactly like `internal/notification/notification.go`.
 - User-input domain types implement `ValidateWithContext(ctx) error` with
   `jellydator/validation` (value receiver, one `ValidateStructWithContext`
-  call, fields in declaration order, embedded configs first; decimal bounds
-  via `.CmpFunc(mathutil.CmpDecimal)`). Options structs use hand-rolled
-  `validate()` with `errors.New`. Aggregate mutations go through `Set*`
-  methods returning `(changed bool, err error)`, orchestrated by
-  `ApplyInput(inp)`.
+  call, fields in declaration order, embedded configs first). Options
+  structs use hand-rolled `validate()` with `errors.New`. Aggregate
+  mutations go through `Set*` methods returning `(changed bool, err
+  error)`, orchestrated by `ApplyInput(inp)`.
 
 ## Database — the agent pattern
 

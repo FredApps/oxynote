@@ -216,8 +216,9 @@ gating in step 3.
    in the processor package and implemented in this one.
 2. **Write the processor.** `server/core/internal/document/hook/processor/`
    holds one processor per type. Its struct is the hook's settings, and
-   it computes a freshness score and a state from them, resets that
-   state, and tears down whatever it holds outside the deployment.
+   it decides from them whether the hook is triggered and keeps a state,
+   resets that state, and tears down whatever it holds outside the
+   deployment.
 3. **Gate on the integration.** If the hook depends on an integration,
    three places refuse or skip it when the deployment lacks it: the
    manager in `server/core/internal/document/hook/manager/` skips it
