@@ -85,6 +85,7 @@ const primaryMethod = computed(() => {
 		return null
 	}
 
+	// NOCOV: the null fallback is unreachable. Every method is one of the four.
 	return (
 		(["google", "github", "slack", "email-password"] as const).find((m) =>
 			enabledMethods.value.includes(m),
@@ -128,7 +129,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-	if (redirectTimeout !== undefined) clearTimeout(redirectTimeout)
+	// NOCOV: the timer is missing only in the desktop build.
+	if (redirectTimeout !== undefined) {
+		clearTimeout(redirectTimeout)
+	}
 })
 
 async function logInWithProvider(provider: "github" | "google" | "slack") {
@@ -221,6 +225,7 @@ const onEmailPasswordSubmit = emailPasswordForm.handleSubmit(async (values) => {
 		return
 	}
 
+	// NOCOV: desktop-only tail; __DESKTOP_BUILD__ is literal false in tests.
 	// the desktop bridge signs in from Electron's main process, where no
 	// window follows the redirect, so the renderer navigates itself. The
 	// session query still caches the signed-out null within its staleTime —

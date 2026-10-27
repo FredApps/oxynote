@@ -84,6 +84,7 @@ const primaryMethod = computed(() => {
 		return null
 	}
 
+	// NOCOV: the null fallback is unreachable. Every method is one of the four.
 	return (
 		(["google", "github", "slack", "email-password"] as const).find((m) =>
 			enabledMethods.value.includes(m),
@@ -132,6 +133,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+	// NOCOV: the timer is missing only in the desktop build.
 	if (redirectTimeout !== undefined) clearTimeout(redirectTimeout)
 })
 
@@ -191,6 +193,7 @@ const onEmailPasswordSubmit = emailPasswordForm.handleSubmit(async (values) => {
 	const res = (await signUpEmailPassword({
 		email: values.email,
 		password: values.password,
+		// NOCOV: unreachable. The form rules require a local part.
 		name: values.email.split("@")[0] || values.email,
 		callbackURL: `${config.public.appBaseURL}/login?verified=true`,
 	})) as AuthResponse
