@@ -11,13 +11,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gomodule/redigo/redis"
 	"github.com/jellydator/xync"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/demo"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/processor"
 	"github.com/oxynote/oxynote/server/core/pkg/errutil"
+	"github.com/oxynote/oxynote/server/core/pkg/memkit"
+	"github.com/oxynote/oxynote/server/core/pkg/metricutil"
+	"github.com/oxynote/oxynote/server/core/pkg/redkit"
 	"github.com/oxynote/oxynote/server/core/pkg/syncutil"
 	"github.com/oxynote/oxynote/server/core/pkg/timeutil"
 	"github.com/rs/xid"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -48,15 +53,21 @@ var _errDataSourceChanged = errutil.New(
 // connections close, when the data source changes, when a connection test
 // fails, or when nobody has asked for it in _idleAfter. What the runners
 // share lives here too: the store their observations are recorded in, the
-// log those recordings complain to, and the demo client.
+// log those recordings complain to, the demo client, and the cache their
+// queries are answered from.
 type Manager struct {
-	log   *slog.Logger
-	store StatusStore
-	demo  *demo.Client
+	log     *slog.Logger
+	store   StatusStore
+	cache   queryCache
+	demo    *demo.Client
+	metrics *metrics
 
 	// tests lets one call at a time test a data source's connection. The
 	// calls waiting behind it reuse what it found.
 	tests *syncutil.KeyedMutex[xid.ID]
+
+	// flights lets identical queries arriving together share one run.
+	flights singleflight.Group
 
 	// mu guards runners and the status and usedAt of each runner. It is
 	// never held across I/O.
@@ -66,22 +77,44 @@ type Manager struct {
 	supv *xync.Supervisor
 }
 
-// NewManager creates a fresh instance of Manager.
-func NewManager(log *slog.Logger, store StatusStore) *Manager {
+// NewManager creates a fresh instance of Manager. Query answers are kept in
+// valkey when pool is set, so every core process shares them, and in this
+// process otherwise.
+func NewManager(
+	log *slog.Logger,
+	store StatusStore,
+	pool *redis.Pool,
+	fc metricutil.Factory,
+) *Manager {
+	var cache queryCache = memkit.NewBytesStore(_cacheTTL, _cacheMaxBytes)
+
+	if pool != nil {
+		cache = redkit.NewBytesStore(pool, _cacheTTL)
+	}
+
 	return &Manager{
 		log:     log.With("component", "datasource"),
 		store:   store,
+		cache:   cache,
 		demo:    demo.NewClient(),
+		metrics: newMetrics(fc),
 		tests:   syncutil.NewKeyedMutex[xid.ID](),
 		runners: make(map[xid.ID]*runner),
 		supv:    xync.NewSupervisor(),
 	}
 }
 
-// Start closes the connections of idle runners until ctx is cancelled. It
-// blocks, so the caller owns the goroutine it runs on.
+// Start runs the upkeep of the query cache and closes the connections of
+// idle runners until ctx is cancelled. It blocks, so the caller owns the
+// goroutine it runs on.
 func (m *Manager) Start(ctx context.Context) {
-	timeutil.NewPeriodicExec(_sweepInterval, 0, m.closeIdle, nil, false).Start(ctx)
+	supv := xync.NewSupervisor(xync.WithSupervisorBaseContext(ctx))
+	defer supv.Close()
+
+	supv.Go(m.cache.Start)
+	supv.Go(timeutil.NewPeriodicExec(_sweepInterval, 0, m.closeIdle, nil, false).Start)
+
+	supv.Wait()
 }
 
 // Close closes the connections of every runner, waiting for the queries
@@ -343,19 +376,37 @@ func (r *runner) TestConnection(ctx context.Context) (processor.ConnectionStatus
 	return client.TestConnection(ctx)
 }
 
-// Prometheus returns the data source's Prometheus client.
+// Prometheus returns the data source's Prometheus client, whose range
+// queries are answered out of the query cache.
 func (r *runner) Prometheus(ctx context.Context) (Prometheus, error) {
-	return connect[Prometheus](ctx, r, TypePrometheus)
+	client, err := connect[Prometheus](ctx, r, TypePrometheus)
+	if err != nil {
+		return nil, err
+	}
+
+	return cachedPrometheus{Prometheus: client, m: r.m, ds: r.ds}, nil
 }
 
-// PostgreSQL returns the data source's PostgreSQL client.
+// PostgreSQL returns the data source's PostgreSQL client, whose queries are
+// answered out of the query cache.
 func (r *runner) PostgreSQL(ctx context.Context) (PostgreSQL, error) {
-	return connect[PostgreSQL](ctx, r, TypePostgreSQL)
+	client, err := connect[PostgreSQL](ctx, r, TypePostgreSQL)
+	if err != nil {
+		return nil, err
+	}
+
+	return cachedPostgreSQL{PostgreSQL: client, m: r.m, ds: r.ds}, nil
 }
 
-// MySQL returns the data source's MySQL client.
+// MySQL returns the data source's MySQL client, whose queries are answered
+// out of the query cache.
 func (r *runner) MySQL(ctx context.Context) (MySQL, error) {
-	return connect[MySQL](ctx, r, TypeMariaDB, TypeMySQL)
+	client, err := connect[MySQL](ctx, r, TypeMariaDB, TypeMySQL)
+	if err != nil {
+		return nil, err
+	}
+
+	return cachedMySQL{MySQL: client, m: r.m, ds: r.ds}, nil
 }
 
 // SQL returns the data source's dialect-agnostic SQL client.
@@ -363,9 +414,15 @@ func (r *runner) SQL(ctx context.Context) (SQL, error) {
 	return connect[SQL](ctx, r, TypePostgreSQL, TypeMariaDB, TypeMySQL)
 }
 
-// Logs returns the data source's log client.
+// Logs returns the data source's log client, whose reads are answered out
+// of the query cache.
 func (r *runner) Logs(ctx context.Context) (Logs, error) {
-	return connect[Logs](ctx, r, TypeLoki)
+	client, err := connect[Logs](ctx, r, TypeLoki)
+	if err != nil {
+		return nil, err
+	}
+
+	return cachedLogs{client: client, m: r.m, ds: r.ds}, nil
 }
 
 // connect resolves the client of the wanted type, testing the connection

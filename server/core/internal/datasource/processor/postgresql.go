@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -372,6 +373,11 @@ type PostgreSQLQueryResult struct {
 	Rows [][]any `json:"rows"`
 }
 
+// HasData reports whether the result holds any row.
+func (pqr *PostgreSQLQueryResult) HasData() bool {
+	return pqr != nil && len(pqr.Rows) > 0
+}
+
 // sql returns the dialect-agnostic view of the result, which is where the
 // transformation into series lives. pgx reports no column types, so the
 // classification falls back to the values' own shape.
@@ -391,11 +397,17 @@ func (pqr *PostgreSQLQueryResult) Transform(ct ChartType) *QueryResult {
 // pgNormalizeValue converts native pgx row values into the JSON-shaped values
 // the rest of the pipeline expects (Transform, HTTP responses). Timestamps
 // become RFC3339 strings and all numeric types become float64, mirroring what
-// JSON marshaling produces for these types.
+// JSON marshaling produces for these types. The unsigned ones pgx decodes
+// (oid, xid, cid, xid8) are identifiers, so they become decimal strings and
+// stay labels.
 func pgNormalizeValue(v any) any {
 	switch val := v.(type) {
 	case time.Time:
 		return val.Format(time.RFC3339Nano)
+	case uint32:
+		return strconv.FormatUint(uint64(val), 10)
+	case uint64:
+		return strconv.FormatUint(val, 10)
 	case int64:
 		return float64(val)
 	case int32:

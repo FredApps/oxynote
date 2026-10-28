@@ -288,6 +288,27 @@ func Test_PostgreSQLQueryResult_Transform(t *testing.T) {
 	}
 }
 
+func Test_PostgreSQLQueryResult_HasData(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Result *PostgreSQLQueryResult
+		Has    bool
+	}{
+		"No result": {},
+		"No rows":   {Result: &PostgreSQLQueryResult{Columns: []string{"value"}}},
+		"A row":     {Result: &PostgreSQLQueryResult{Columns: []string{"value"}, Rows: [][]any{{1.0}}}, Has: true},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Has, c.Result.HasData())
+		})
+	}
+}
+
 func Test_sqlSetLimit(t *testing.T) {
 	// the query is bounded by wrapping rather than by rewriting its tail,
 	// so every shape produces the same envelope.
@@ -386,6 +407,14 @@ func Test_pgNormalizeValue(t *testing.T) {
 		"Int16 becomes float64": {
 			In:       int16(3),
 			Expected: 3.0,
+		},
+		"Oid becomes a decimal string": {
+			In:       uint32(16384),
+			Expected: "16384",
+		},
+		"Xid8 becomes a decimal string": {
+			In:       uint64(18446744073709551615),
+			Expected: "18446744073709551615",
 		},
 		"Numeric becomes float64": {
 			In:       numeric,
@@ -701,6 +730,17 @@ func Test_PostgreSQL_Query(t *testing.T) {
 			Result: &PostgreSQLQueryResult{
 				Columns: []string{"ratio", "total"},
 				Rows:    [][]any{{0.25, 10.5}},
+			},
+			CredentialsCalls: 1,
+		},
+		// pgx decodes oid as uint32 and xid8 as uint64. As strings they
+		// stay labels, and a cached copy reads the same.
+		"Oid and xid8 columns become decimal strings": {
+			URL:   fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=disable", _pgUser, _pgPass, _pgAddr, _testDB),
+			Query: "SELECT 16384::oid AS datid, '7'::xid8 AS xmin",
+			Result: &PostgreSQLQueryResult{
+				Columns: []string{"datid", "xmin"},
+				Rows:    [][]any{{"16384", "7"}},
 			},
 			CredentialsCalls: 1,
 		},

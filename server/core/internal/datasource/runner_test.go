@@ -9,12 +9,17 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/gomodule/redigo/redis"
 	"github.com/guregu/null/v5"
 	"github.com/jellydator/xync"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/demo"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/processor"
+	"github.com/oxynote/oxynote/server/core/pkg/memkit"
+	"github.com/oxynote/oxynote/server/core/pkg/metricutil"
+	"github.com/oxynote/oxynote/server/core/pkg/redkit"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/oxynote/oxynote/server/core/pkg/timeutil"
 	"github.com/prometheus/client_golang/api"
@@ -55,6 +60,34 @@ func (s *stubClient) Close() error {
 	s.closes.Add(1)
 
 	return s.closeErr
+}
+
+// passingPostgreSQL is a PostgreSQL client whose connection test passes.
+// Anything else asked of it is a test bug.
+type passingPostgreSQL struct {
+	PostgreSQL
+}
+
+func (passingPostgreSQL) TestConnection(context.Context) (processor.ConnectionStatus, error) {
+	return processor.ConnectionStatusSuccess, nil
+}
+
+func (passingPostgreSQL) Close() error {
+	return nil
+}
+
+// passingMySQL is a MySQL client whose connection test passes. Anything
+// else asked of it is a test bug.
+type passingMySQL struct {
+	MySQL
+}
+
+func (passingMySQL) TestConnection(context.Context) (processor.ConnectionStatus, error) {
+	return processor.ConnectionStatusSuccess, nil
+}
+
+func (passingMySQL) Close() error {
+	return nil
 }
 
 // countNewConns returns a server hook counting in conns the connections
@@ -177,7 +210,7 @@ func prepManager(t *testing.T, store *StatusStoreMock) *Manager {
 		store = &StatusStoreMock{}
 	}
 
-	m := NewManager(slog.New(slog.DiscardHandler), store)
+	m := NewManager(slog.New(slog.DiscardHandler), store, nil, metricutil.NewFactory("test", nil))
 
 	t.Cleanup(func() { assert.NoError(t, m.Close()) })
 
@@ -228,29 +261,72 @@ func prepStubRunner(m *Manager, client *stubClient, usedAt time.Time) *runner {
 func Test_NewManager(t *testing.T) {
 	t.Parallel()
 
-	store := &StatusStoreMock{}
+	cc := map[string]struct {
+		Pool  *redis.Pool
+		Cache queryCache
+	}{
+		"Without valkey the answers stay in this process": {
+			Cache: &memkit.BytesStore{},
+		},
+		"With valkey the answers are kept there": {
+			Pool:  &redis.Pool{},
+			Cache: &redkit.BytesStore{},
+		},
+	}
 
-	m := NewManager(slog.New(slog.DiscardHandler), store)
-	require.NotNil(t, m)
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
 
-	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+			store := &StatusStoreMock{}
 
-	assert.NotNil(t, m.log)
-	assert.Same(t, store, m.store)
-	assert.NotNil(t, m.demo)
-	assert.NotNil(t, m.tests)
-	assert.Empty(t, m.runners)
-	assert.NotNil(t, m.supv)
+			m := NewManager(slog.New(slog.DiscardHandler), store, c.Pool, metricutil.NewFactory("test", nil))
+			require.NotNil(t, m)
+
+			t.Cleanup(func() { assert.NoError(t, m.Close()) })
+
+			assert.NotNil(t, m.log)
+			assert.Same(t, store, m.store)
+			assert.IsType(t, c.Cache, m.cache)
+			assert.NotNil(t, m.demo)
+			assert.NotNil(t, m.metrics)
+			assert.NotNil(t, m.tests)
+			assert.Empty(t, m.runners)
+			assert.NotNil(t, m.supv)
+		})
+	}
 }
 
 func Test_Manager_Start(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	// the bubble's clock is virtual, so the sleep below passes the idle
+	// limit and one more sweep at once.
+	synctest.Test(t, func(t *testing.T) {
+		m := prepManager(t, nil)
+		cache := &queryCacheMock{}
+		m.cache = cache
 
-	// the sweep itself is closeIdle's; Start only has to end with ctx.
-	prepManager(t, nil).Start(ctx)
+		idle := &stubClient{}
+		prepStubRunner(m, idle, timeutil.Now())
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		supv := xync.NewSupervisor()
+		supv.Go(func(context.Context) { m.Start(ctx) })
+
+		time.Sleep(_idleAfter + _sweepInterval)
+		synctest.Wait()
+
+		cancel()
+		supv.Wait()
+		m.supv.Wait()
+
+		// Start runs the cache's own upkeep and the idle sweep until ctx
+		// ends.
+		assert.Len(t, cache.StartCalls(), 1)
+		assert.Equal(t, int32(1), idle.closes.Load())
+	})
 }
 
 func Test_Manager_Close(t *testing.T) {
@@ -774,6 +850,7 @@ func Test_runner_TestConnection(t *testing.T) {
 		URL           string
 		Handler       http.Handler
 		Undecryptable bool
+		Kept          bool
 
 		// Tests is how many connection tests the two calls reach the data
 		// source with.
@@ -804,6 +881,15 @@ func Test_runner_TestConnection(t *testing.T) {
 			Tests:   2,
 			Result:  processor.ConnectionStatusUnreachable,
 		},
+		// readers share the kept runner's client, so a test dials through
+		// one of its own.
+		"A runner the manager keeps": {
+			Type:    TypePrometheus,
+			Handler: testutil.JSONHandler("/api/v1/status/buildinfo", http.StatusOK, `{"status":"success","data":{"version":"2.50.0"}}`),
+			Kept:    true,
+			Tests:   2,
+			Result:  processor.ConnectionStatusSuccess,
+		},
 		// the throwaway client's pool is closed after the test, which
 		// goleak would otherwise catch.
 		"A PostgreSQL connection that does not answer": {
@@ -827,6 +913,12 @@ func Test_runner_TestConnection(t *testing.T) {
 			store := &StatusStoreMock{}
 			r := prepRunner(t, c.Type, url, store)
 
+			shared := &stubClient{}
+			if c.Kept {
+				r = prepStubRunner(r.m, shared, timeutil.Now())
+				r.ds.URL = url
+			}
+
 			if c.Undecryptable {
 				r.ds.Credentials = undecryptableCredentials(t)
 			}
@@ -839,11 +931,14 @@ func Test_runner_TestConnection(t *testing.T) {
 
 			// an explicit test is asked about a data source that is
 			// being created or changed, so what it finds is reported and
-			// not recorded, and the runner is not kept for it.
+			// not recorded, and the runner is not kept for it. It never
+			// touches the client a kept runner shares.
 			assert.Empty(t, store.UpdateDataSourceStatusCalls())
 			assert.Equal(t, c.Tests, hits.Load())
 			assert.True(t, r.testedAt.IsZero())
-			assert.Empty(t, r.m.runners)
+			assert.Equal(t, c.Kept, r.m.keeps(r))
+			assert.Zero(t, shared.tests.Load())
+			assert.Zero(t, shared.closes.Load())
 
 			if c.Err != nil {
 				return
@@ -920,6 +1015,7 @@ func Test_runner_Prometheus(t *testing.T) {
 			}
 
 			require.NotNil(t, client)
+			assert.IsType(t, cachedPrometheus{}, client)
 
 			// the client the accessor hands back is the live one: every
 			// read it offers reaches the data source.
@@ -947,7 +1043,7 @@ func Test_runner_Prometheus(t *testing.T) {
 			// test that passed a moment ago is not run again.
 			again, aerr := r.m.Runner(r.ds).Prometheus(context.Background())
 			require.NoError(t, aerr)
-			assert.Same(t, client, again)
+			assert.Equal(t, client, again)
 
 			res, qerr = again.QueryRange(context.Background(), "up", _testTimeRange)
 			require.NoError(t, qerr)
@@ -1027,6 +1123,7 @@ func Test_runner_Logs(t *testing.T) {
 			}
 
 			require.NotNil(t, client)
+			assert.IsType(t, cachedLogs{}, client)
 
 			// the client the accessor hands back is the live one: every
 			// read it offers reaches the data source.
@@ -1050,7 +1147,7 @@ func Test_runner_Logs(t *testing.T) {
 			// test that passed a moment ago is not run again.
 			again, gerr := r.m.Runner(r.ds).Logs(context.Background())
 			require.NoError(t, gerr)
-			assert.Same(t, client, again)
+			assert.Equal(t, client, again)
 
 			lines, lerr = again.Logs(context.Background(), `{app="api"}`, _testTimeRange, processor.LogsPage{Limit: 10})
 			require.NoError(t, lerr)
@@ -1066,11 +1163,19 @@ func Test_runner_PostgreSQL(t *testing.T) {
 	t.Parallel()
 
 	cc := map[string]struct {
-		Type    Type
-		URL     string
+		Type Type
+		URL  string
+
+		// Client, when set, is the client of a runner the manager already
+		// keeps for the data source.
+		Client  ownedClient
 		Written int
 		Err     error
 	}{
+		"A PostgreSQL data source hands out its cached client": {
+			Type:   TypePostgreSQL,
+			Client: passingPostgreSQL{},
+		},
 		// a PostgreSQL data source pointed nowhere still resolves its
 		// processor; what fails is the connection, which the accessor
 		// reports as the error it is.
@@ -1091,10 +1196,21 @@ func Test_runner_PostgreSQL(t *testing.T) {
 			t.Parallel()
 
 			store := &StatusStoreMock{}
+			r := prepRunner(t, c.Type, c.URL, store)
 
-			_, err := prepRunner(t, c.Type, c.URL, store).PostgreSQL(context.Background())
+			if c.Client != nil {
+				r.client = c.Client
+			}
+
+			client, err := r.PostgreSQL(context.Background())
 			testutil.AssertEqualError(t, c.Err, err)
 			assert.Len(t, store.UpdateDataSourceStatusCalls(), c.Written)
+
+			if err != nil {
+				return
+			}
+
+			assert.IsType(t, cachedPostgreSQL{}, client)
 		})
 	}
 }
@@ -1103,11 +1219,19 @@ func Test_runner_MySQL(t *testing.T) {
 	t.Parallel()
 
 	cc := map[string]struct {
-		Type    Type
-		URL     string
+		Type Type
+		URL  string
+
+		// Client, when set, is the client of a runner the manager already
+		// keeps for the data source.
+		Client  ownedClient
 		Written int
 		Err     error
 	}{
+		"A MySQL data source hands out its cached client": {
+			Type:   TypeMySQL,
+			Client: passingMySQL{},
+		},
 		"A connection the MySQL data source refused": {
 			Type:    TypeMySQL,
 			URL:     "user:pass@tcp(127.0.0.1:1)/db",
@@ -1131,10 +1255,21 @@ func Test_runner_MySQL(t *testing.T) {
 			t.Parallel()
 
 			store := &StatusStoreMock{}
+			r := prepRunner(t, c.Type, c.URL, store)
 
-			_, err := prepRunner(t, c.Type, c.URL, store).MySQL(context.Background())
+			if c.Client != nil {
+				r.client = c.Client
+			}
+
+			client, err := r.MySQL(context.Background())
 			testutil.AssertEqualError(t, c.Err, err)
 			assert.Len(t, store.UpdateDataSourceStatusCalls(), c.Written)
+
+			if err != nil {
+				return
+			}
+
+			assert.IsType(t, cachedMySQL{}, client)
 		})
 	}
 }
@@ -1193,6 +1328,7 @@ func Test_connect(t *testing.T) {
 		Allowed       []Type
 		Stored        processor.ConnectionStatus
 		Undecryptable bool
+		Rival         bool
 		Recorded      []processor.ConnectionStatus
 		Err           error
 	}{
@@ -1216,6 +1352,15 @@ func Test_connect(t *testing.T) {
 			Undecryptable: true,
 			Recorded:      []processor.ConnectionStatus{processor.ConnectionStatusInvalidEncryptionKey},
 			Err:           processor.ConnectionStatusInvalidEncryptionKey.Error(),
+		},
+		// two calls for one version got runners before either connected,
+		// and the one to connect second reads through the one kept first.
+		"A call that lost the race to keep its runner": {
+			Type:    TypePrometheus,
+			URL:     srv.URL,
+			Allowed: []Type{TypePrometheus},
+			Stored:  processor.ConnectionStatusSuccess,
+			Rival:   true,
 		},
 		"The wanted client is not one this data source serves": {
 			Type:    TypePostgreSQL,
@@ -1250,6 +1395,17 @@ func Test_connect(t *testing.T) {
 				r.ds.Credentials = undecryptableCredentials(t)
 			}
 
+			kept := r
+			if c.Rival {
+				rival, ok := r.m.Runner(r.ds).(*runner)
+				require.True(t, ok)
+
+				_, rerr := connect[Prometheus](context.Background(), rival, c.Allowed...)
+				require.NoError(t, rerr)
+
+				kept = rival
+			}
+
 			client, err := connect[Prometheus](context.Background(), r, c.Allowed...)
 			testutil.AssertEqualError(t, c.Err, err)
 
@@ -1267,7 +1423,7 @@ func Test_connect(t *testing.T) {
 			}
 
 			assert.NotNil(t, client)
-			assert.Same(t, r, r.m.runners[r.ds.ID])
+			assert.Same(t, kept, r.m.runners[r.ds.ID])
 		})
 	}
 }

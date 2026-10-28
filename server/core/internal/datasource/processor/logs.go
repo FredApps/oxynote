@@ -342,6 +342,11 @@ type LogsResult struct {
 	Partial bool `json:"partial"`
 }
 
+// HasData reports whether the page holds any line.
+func (lr *LogsResult) HasData() bool {
+	return lr != nil && len(lr.Lines) > 0
+}
+
 // LogField is a field name a source's lines carry.
 type LogField struct {
 	// Name specifies the field's name.
@@ -355,6 +360,11 @@ type LogField struct {
 type LogFieldsResult struct {
 	// Fields specifies the names, sorted.
 	Fields []LogField `json:"fields"`
+}
+
+// HasData reports whether the result holds any field.
+func (lfr *LogFieldsResult) HasData() bool {
+	return lfr != nil && len(lfr.Fields) > 0
 }
 
 // LogFieldValue is one value of a field.
@@ -371,6 +381,11 @@ type LogFieldValue struct {
 type LogFieldValuesResult struct {
 	// Values specifies the values.
 	Values []LogFieldValue `json:"values"`
+}
+
+// HasData reports whether the result holds any value.
+func (lvr *LogFieldValuesResult) HasData() bool {
+	return lvr != nil && len(lvr.Values) > 0
 }
 
 // NewLogFieldValuesResult creates the result holding the given values, in

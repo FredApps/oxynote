@@ -49,6 +49,26 @@ sources.
   so whatever a query changes stays on its pooled connection; keeping the
   account read-only is the user's job.
 
+## Query cache
+
+- `Prometheus`, `PostgreSQL`, `MySQL` and `Logs` hand out clients whose
+  query methods answer from a 10s cache: Valkey when core has a pool,
+  memkit capped at 64 MiB otherwise. Metadata, labels and `SQL()` are not
+  cached.
+- The key hashes the data source ID and `updatedAt`, the method, its
+  arguments and the aligned range. Prometheus keys on the step-aligned
+  range but is given the raw one: it aligns it itself, and aligning twice
+  can widen the window. SQL and logs key and run on a 15s grid, so a
+  window widens by under 15s rather than by a step that can reach 24h.
+  Errors
+  and answers without data are never kept.
+- Identical calls share one run on a context no caller can cancel, so
+  every processor method must bound itself with a timeout.
+- Answers are kept as JSON and must decode to what their readers expect:
+  `PrometheusQueryResult.UnmarshalJSON` restores the `model.Matrix` the
+  assistant's caps assert, and MySQL keeps `ColumnTypes` to classify
+  columns.
+
 ## Processor tests
 
 `processor/` starts throwaway MariaDB, Postgres and Loki (oldest supported

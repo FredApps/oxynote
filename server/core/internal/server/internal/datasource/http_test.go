@@ -18,6 +18,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/datasource/processor"
 	"github.com/oxynote/oxynote/server/core/internal/server/internal/auth"
 	"github.com/oxynote/oxynote/server/core/internal/variable"
+	"github.com/oxynote/oxynote/server/core/pkg/metricutil"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
@@ -416,7 +417,7 @@ func Test_NewHandler(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
 	db := &DBMock{}
 
-	runners := datasourceCore.NewManager(log, &datasourceMock.StatusStore{})
+	runners := datasourceCore.NewManager(log, &datasourceMock.StatusStore{}, nil, metricutil.NewFactory("test", nil))
 
 	variables := &VariableManagerMock{}
 

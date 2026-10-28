@@ -264,12 +264,7 @@ func (m *MySQL) Query(ctx context.Context, q string, tr TimeRange) (*MySQLQueryR
 
 		for i, v := range dest {
 			payloadSize += estimateValueSize(v)
-
-			// The MySQL driver returns string values as []byte.
-			// Convert to string so they JSON-marshal as strings, not base64.
-			if b, ok := v.([]byte); ok {
-				dest[i] = string(b)
-			}
+			dest[i] = mysqlNormalizeValue(v)
 		}
 
 		if payloadSize > _queryPayloadLimit {
@@ -396,9 +391,14 @@ type MySQLQueryResult struct {
 	// ColumnTypes contains the database type of each column, which is what
 	// separates a numeric column from a label: the driver hands DECIMAL
 	// over as bytes, exactly like a VARCHAR, so the value alone cannot
-	// tell them apart. Kept out of the payload; it exists for
-	// classification.
-	ColumnTypes []string `json:"-"`
+	// tell them apart. It is encoded so a cached result still classifies
+	// its columns.
+	ColumnTypes []string `json:"columnTypes"`
+}
+
+// HasData reports whether the result holds any row.
+func (mqr *MySQLQueryResult) HasData() bool {
+	return mqr != nil && len(mqr.Rows) > 0
 }
 
 // sql returns the dialect-agnostic view of the result, which is where the
@@ -506,16 +506,36 @@ func mysqlCheckReadOnly(ctx context.Context, db *sql.DB) (bool, error) {
 	return true, nil
 }
 
+// mysqlNormalizeValue converts native driver row values into the
+// JSON-shaped values the rest of the pipeline expects, so a result reads
+// the same before and after it goes through JSON. The driver hands strings
+// over as []byte, FLOAT as float32 and integers as int64 or, unsigned
+// BIGINT, uint64; dates become RFC3339 strings.
+func mysqlNormalizeValue(v any) any {
+	switch val := v.(type) {
+	case []byte:
+		return string(val)
+	case float32:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case uint64:
+		return float64(val)
+	case time.Time:
+		return val.Format(time.RFC3339Nano)
+	default:
+		return v
+	}
+}
+
 // mysqlParseTimestamp parses a timestamp value from a MySQL result row.
-// It handles float64 (unix seconds), int64 (unix seconds), time.Time, and string (unix seconds or RFC3339) values.
+// It handles float64 (unix seconds), int64 (unix seconds), and string (unix seconds or RFC3339) values.
 func mysqlParseTimestamp(v any) (int64, bool) {
 	switch val := v.(type) {
 	case float64:
 		return int64(val), true
 	case int64:
 		return val, true
-	case time.Time:
-		return val.Unix(), true
 	case string:
 		// MySQL types a $__timeGroup bucket as DECIMAL, which the driver
 		// hands over as []byte and Query converts to a string.

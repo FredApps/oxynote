@@ -334,6 +334,27 @@ func Test_MySQLQueryResult_Transform(t *testing.T) {
 	}
 }
 
+func Test_MySQLQueryResult_HasData(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Result *MySQLQueryResult
+		Has    bool
+	}{
+		"No result": {},
+		"No rows":   {Result: &MySQLQueryResult{Columns: []string{"value"}}},
+		"A row":     {Result: &MySQLQueryResult{Columns: []string{"value"}, Rows: [][]any{{int64(1)}}}, Has: true},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Has, c.Result.HasData())
+		})
+	}
+}
+
 func Test_NewMySQL(t *testing.T) {
 	t.Parallel()
 
@@ -624,7 +645,19 @@ func Test_MySQL_Query(t *testing.T) {
 			Result: &MySQLQueryResult{
 				Columns:     []string{"time", "code", "total"},
 				ColumnTypes: []string{"BIGINT", "VARCHAR", "DECIMAL"},
-				Rows:        [][]any{{int64(1700000000), "200", "10.50"}},
+				Rows:        [][]any{{float64(1700000000), "200", "10.50"}},
+			},
+			CredentialsCalls: 1,
+		},
+		// rows come back in the shape JSON gives them, so a cached copy
+		// draws the same chart as the fresh one.
+		"FLOAT, unsigned BIGINT and DATE columns": {
+			URL:   fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB),
+			Query: "SELECT CAST(1.5 AS FLOAT) AS ratio, CAST(9223372036854775808 AS UNSIGNED) AS hits, DATE('2024-01-01') AS day",
+			Result: &MySQLQueryResult{
+				Columns:     []string{"ratio", "hits", "day"},
+				ColumnTypes: []string{"FLOAT", "UNSIGNED BIGINT", "DATE"},
+				Rows:        [][]any{{1.5, float64(9223372036854775808), "2024-01-01T00:00:00Z"}},
 			},
 			CredentialsCalls: 1,
 		},
@@ -635,8 +668,8 @@ func Test_MySQL_Query(t *testing.T) {
 				Columns:     []string{"time", "host", "value"},
 				ColumnTypes: []string{"BIGINT", "VARCHAR", "DOUBLE"},
 				Rows: [][]any{
-					{int64(1700000000), "web-1", 10.5},
-					{int64(1700000060), "web-2", 20.5},
+					{float64(1700000000), "web-1", 10.5},
+					{float64(1700000060), "web-2", 20.5},
 				},
 			},
 			CredentialsCalls: 1,
@@ -647,7 +680,7 @@ func Test_MySQL_Query(t *testing.T) {
 			Result: &MySQLQueryResult{
 				Columns:     []string{"one"},
 				ColumnTypes: []string{"INT"},
-				Rows:        [][]any{{int64(1)}},
+				Rows:        [][]any{{float64(1)}},
 			},
 			CredentialsCalls: 1,
 			Check: func(t *testing.T, m *MySQL) {
@@ -956,6 +989,34 @@ func Test_mysqlCheckReadOnly(t *testing.T) {
 	}
 }
 
+func Test_mysqlNormalizeValue(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Value  any
+		Result any
+	}{
+		"Bytes become a string":           {Value: []byte("web-1"), Result: "web-1"},
+		"FLOAT becomes float64":           {Value: float32(1.5), Result: 1.5},
+		"BIGINT becomes float64":          {Value: int64(7), Result: float64(7)},
+		"Unsigned BIGINT becomes float64": {Value: uint64(5), Result: float64(5)},
+		"Date becomes an RFC3339 string": {
+			Value:  time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			Result: "2024-01-01T00:00:00Z",
+		},
+		"Anything else is kept": {Value: "web-1", Result: "web-1"},
+		"Null is kept":          {},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Result, mysqlNormalizeValue(c.Value))
+		})
+	}
+}
+
 func Test_mysqlParseTimestamp(t *testing.T) {
 	cc := map[string]struct {
 		Value  any
@@ -969,11 +1030,6 @@ func Test_mysqlParseTimestamp(t *testing.T) {
 		},
 		"Int64 unix seconds": {
 			Value:  int64(1700000000),
-			Result: 1700000000,
-			OK:     true,
-		},
-		"Time value": {
-			Value:  time.Date(2023, 11, 14, 22, 13, 20, 0, time.UTC),
 			Result: 1700000000,
 			OK:     true,
 		},

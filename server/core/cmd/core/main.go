@@ -319,7 +319,7 @@ func main() { //nolint:maintidx,cyclop // main performs linear wiring of all com
 		return
 	}
 
-	datasourceMan := datasource.NewManager(log, dbc)
+	datasourceMan := datasource.NewManager(log, dbc, rdb, metrics)
 	closers = append([]io.Closer{datasourceMan}, closers...)
 
 	simulationChecker := simulation.NewChecker(log, dbc, datasourceMan, editClient)

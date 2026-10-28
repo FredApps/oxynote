@@ -350,6 +350,69 @@ func Test_ParseLogsPage(t *testing.T) {
 	}
 }
 
+func Test_LogsResult_HasData(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Result *LogsResult
+		Has    bool
+	}{
+		"No result": {},
+		"No lines":  {Result: &LogsResult{Status: QueryStatusNoData}},
+		"A line":    {Result: &LogsResult{Status: QueryStatusOK, Lines: []LogLine{{Line: "started"}}}, Has: true},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Has, c.Result.HasData())
+		})
+	}
+}
+
+func Test_LogFieldsResult_HasData(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Result *LogFieldsResult
+		Has    bool
+	}{
+		"No result": {},
+		"No fields": {Result: &LogFieldsResult{}},
+		"A field":   {Result: &LogFieldsResult{Fields: []LogField{{Name: "app"}}}, Has: true},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Has, c.Result.HasData())
+		})
+	}
+}
+
+func Test_LogFieldValuesResult_HasData(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Result *LogFieldValuesResult
+		Has    bool
+	}{
+		"No result": {},
+		"No values": {Result: &LogFieldValuesResult{}},
+		"A value":   {Result: &LogFieldValuesResult{Values: []LogFieldValue{{Value: "api"}}}, Has: true},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Has, c.Result.HasData())
+		})
+	}
+}
+
 func Test_NewLogFieldValuesResult(t *testing.T) {
 	many := make([]string, _maxLogFieldValues+5)
 	for i := range many {
