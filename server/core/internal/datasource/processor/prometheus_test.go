@@ -44,6 +44,12 @@ func Test_NewPrometheus(t *testing.T) {
 	assert.Same(t, inp, p.inp)
 }
 
+func Test_Prometheus_Close(t *testing.T) {
+	t.Parallel()
+
+	assert.NoError(t, NewPrometheus(&InputMock{}).Close())
+}
+
 func Test_Prometheus_TestConnection(t *testing.T) {
 	cc := map[string]struct {
 		Inp     *InputMock

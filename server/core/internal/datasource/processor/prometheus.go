@@ -38,6 +38,12 @@ func NewPrometheus(inp Input) *Prometheus {
 	}
 }
 
+// Close does nothing: the connections a Prometheus client opens belong to
+// the transport every client shares.
+func (p *Prometheus) Close() error {
+	return nil
+}
+
 // TestConnection tests the connection to the Prometheus data source.
 func (p *Prometheus) TestConnection(ctx context.Context) (ConnectionStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, _queryTimeout)

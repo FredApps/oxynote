@@ -317,6 +317,12 @@ func Test_NewLoki(t *testing.T) {
 	assert.Same(t, inp, l.inp)
 }
 
+func Test_Loki_Close(t *testing.T) {
+	t.Parallel()
+
+	assert.NoError(t, NewLoki(&InputMock{}).Close())
+}
+
 func Test_Loki_TestConnection(t *testing.T) {
 	cc := map[string]struct {
 		Inp     *InputMock

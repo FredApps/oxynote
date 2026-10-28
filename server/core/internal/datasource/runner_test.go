@@ -3,15 +3,20 @@ package datasource
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/guregu/null/v5"
+	"github.com/jellydator/xync"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/demo"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/processor"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
+	"github.com/oxynote/oxynote/server/core/pkg/timeutil"
 	"github.com/prometheus/client_golang/api"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
@@ -24,13 +29,54 @@ var _testTimeRange = processor.TimeRange{
 	To:   time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
 }
 
+// stubClient is a processor whose connection test answers status and err.
+// It counts its tests and closes, and runs onTest inside each test when
+// set.
+type stubClient struct {
+	status   processor.ConnectionStatus
+	err      error
+	closeErr error
+	onTest   func()
+	tests    atomic.Int32
+	closes   atomic.Int32
+}
+
+func (s *stubClient) TestConnection(context.Context) (processor.ConnectionStatus, error) {
+	s.tests.Add(1)
+
+	if s.onTest != nil {
+		s.onTest()
+	}
+
+	return s.status, s.err
+}
+
+func (s *stubClient) Close() error {
+	s.closes.Add(1)
+
+	return s.closeErr
+}
+
+// countNewConns returns a server hook counting in conns the connections
+// clients open to it.
+func countNewConns(conns *atomic.Int32) func(net.Conn, http.ConnState) {
+	return func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			conns.Add(1)
+		}
+	}
+}
+
 // prepPrometheusServer starts a fake Prometheus API server serving the
-// provided handler. Its cleanup also drops the Prometheus client's shared
-// keep-alive connections so goleak stays clean.
-func prepPrometheusServer(t *testing.T, h http.Handler) *httptest.Server {
+// provided handler, counting in conns the connections clients open to it.
+// Its cleanup also drops the Prometheus client's shared keep-alive
+// connections so goleak stays clean.
+func prepPrometheusServer(t *testing.T, h http.Handler, conns *atomic.Int32) *httptest.Server {
 	t.Helper()
 
-	srv := httptest.NewServer(h)
+	srv := httptest.NewUnstartedServer(h)
+	srv.Config.ConnState = countNewConns(conns)
+	srv.Start()
 
 	t.Cleanup(func() {
 		srv.Close()
@@ -92,13 +138,15 @@ func lokiAPIHandler() http.Handler {
 	return mux
 }
 
-// prepLokiServer starts a fake Loki serving the provided handler. Its
-// cleanup also drops the shared transport's keep-alive connections so
-// goleak stays clean.
-func prepLokiServer(t *testing.T, h http.Handler) *httptest.Server {
+// prepLokiServer starts a fake Loki serving the provided handler, counting
+// in conns the connections clients open to it. Its cleanup also drops the
+// shared transport's keep-alive connections so goleak stays clean.
+func prepLokiServer(t *testing.T, h http.Handler, conns *atomic.Int32) *httptest.Server {
 	t.Helper()
 
-	srv := httptest.NewServer(h)
+	srv := httptest.NewUnstartedServer(h)
+	srv.Config.ConnState = countNewConns(conns)
+	srv.Start()
 
 	t.Cleanup(func() {
 		srv.Close()
@@ -108,16 +156,40 @@ func prepLokiServer(t *testing.T, h http.Handler) *httptest.Server {
 	return srv
 }
 
-// prepRunner builds the runner for a data source of the given type,
-// pointed at the given URL, over a store that records what it was told.
-func prepRunner(typ Type, url string, store *StatusStoreMock) *runner {
+// countBuildinfo wraps h, counting in hits the connection tests it
+// answers.
+func countBuildinfo(h http.Handler, hits *atomic.Int32) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/status/buildinfo") {
+			hits.Add(1)
+		}
+
+		h.ServeHTTP(w, r)
+	})
+}
+
+// prepManager builds a manager over the given store, closed when the test
+// ends so no connection outlives it.
+func prepManager(t *testing.T, store *StatusStoreMock) *Manager {
+	t.Helper()
+
 	if store == nil {
 		store = &StatusStoreMock{}
 	}
 
 	m := NewManager(slog.New(slog.DiscardHandler), store)
 
-	r, ok := m.Runner(DataSource{
+	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+
+	return m
+}
+
+// prepRunner builds the runner for a data source of the given type,
+// pointed at the given URL, over a store that records what it was told.
+func prepRunner(t *testing.T, typ Type, url string, store *StatusStoreMock) *runner {
+	t.Helper()
+
+	r, ok := prepManager(t, store).Runner(DataSource{
 		ID:             xid.New(),
 		OrganizationID: "org",
 		Name:           "prod",
@@ -125,9 +197,30 @@ func prepRunner(typ Type, url string, store *StatusStoreMock) *runner {
 		URL:            url,
 		Status:         processor.ConnectionStatusSuccess,
 	}).(*runner)
-	if !ok {
-		panic("the manager built something other than a runner")
+	require.True(t, ok)
+
+	return r
+}
+
+// prepStubRunner puts a runner whose client is the given stub into the
+// manager, last asked for at usedAt.
+func prepStubRunner(m *Manager, client *stubClient, usedAt time.Time) *runner {
+	r := &runner{
+		m: m,
+		ds: DataSource{
+			ID:             xid.New(),
+			OrganizationID: "org",
+			Type:           TypePrometheus,
+		},
+		client: client,
+		status: processor.ConnectionStatusSuccess,
+		usedAt: usedAt,
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.runners[r.ds.ID] = r
 
 	return r
 }
@@ -139,43 +232,538 @@ func Test_NewManager(t *testing.T) {
 
 	m := NewManager(slog.New(slog.DiscardHandler), store)
 	require.NotNil(t, m)
+
+	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+
 	assert.NotNil(t, m.log)
 	assert.Same(t, store, m.store)
 	assert.NotNil(t, m.demo)
+	assert.NotNil(t, m.tests)
+	assert.Empty(t, m.runners)
+	assert.NotNil(t, m.supv)
+}
+
+func Test_Manager_Start(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// the sweep itself is closeIdle's; Start only has to end with ctx.
+	prepManager(t, nil).Start(ctx)
+}
+
+func Test_Manager_Close(t *testing.T) {
+	t.Parallel()
+
+	m := prepManager(t, nil)
+
+	closing := &stubClient{}
+	failing := &stubClient{closeErr: assert.AnError}
+
+	prepStubRunner(m, closing, timeutil.Now())
+	prepStubRunner(m, failing, timeutil.Now())
+
+	require.NoError(t, m.Close())
+
+	// every runner leaves, and Close waits for each close, a failing one
+	// included.
+	assert.Empty(t, m.runners)
+	assert.Equal(t, int32(1), closing.closes.Load())
+	assert.Equal(t, int32(1), failing.closes.Load())
 }
 
 func Test_Manager_Runner(t *testing.T) {
 	t.Parallel()
 
-	store := &StatusStoreMock{}
-	ds := DataSource{Type: TypePrometheus, URL: "http://prometheus.test"}
+	id := xid.New()
+	edited := null.TimeFrom(time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC))
 
-	m := NewManager(slog.New(slog.DiscardHandler), store)
+	cc := map[string]struct {
+		// Kept is the data source the manager already keeps a runner for,
+		// if any.
+		Kept *DataSource
+		DS   DataSource
 
-	r, ok := m.Runner(ds).(*runner)
-	require.True(t, ok)
+		// Same indicates whether the kept runner is handed back.
+		Same      bool
+		ClientErr error
+	}{
+		"First call hands out a runner the manager does not keep yet": {
+			DS: DataSource{ID: id, Type: TypePrometheus, URL: "http://prometheus.test", Status: processor.ConnectionStatusSuccess},
+		},
+		// the caller read the stored row just now, so its status is the
+		// one a later observation is compared with.
+		"Unchanged data source gets the kept runner": {
+			Kept: &DataSource{ID: id, Type: TypePrometheus, URL: "http://prometheus.test", Status: processor.ConnectionStatusSuccess},
+			DS:   DataSource{ID: id, Type: TypePrometheus, URL: "http://prometheus.test", Status: processor.ConnectionStatusUnreachable},
+			Same: true,
+		},
+		// testing an edit must not close the connections its readers use.
+		"Edited data source gets a runner of its own": {
+			Kept: &DataSource{ID: id, Type: TypePrometheus, URL: "http://prometheus.test", Status: processor.ConnectionStatusSuccess},
+			DS:   DataSource{ID: id, Type: TypePrometheus, URL: "http://prometheus.new", Status: processor.ConnectionStatusSuccess, UpdatedAt: edited},
+		},
+		"Data source whose client cannot be built": {
+			DS:        DataSource{ID: id, Type: TypePrometheus, URL: demo.Scheme + "nope"},
+			ClientErr: demo.ErrUnknownSource,
+		},
+	}
 
-	// the runner carries the data source it operates and shares the
-	// manager's store; anything longer-lived than one call stays there.
-	assert.Equal(t, ds, r.ds)
-	assert.Same(t, store, r.store)
-	assert.False(t, r.prepared)
-	assert.Nil(t, r.client)
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
 
-	// the demo client is one of those longer-lived things: it caches the
-	// history it replays, so every runner has to read the manager's
-	// rather than build one of its own.
-	require.NotNil(t, r.demo)
+			m := prepManager(t, nil)
+			asked := timeutil.Now()
 
-	second, ok := m.Runner(ds).(*runner)
-	require.True(t, ok)
-	assert.Same(t, r.demo, second.demo)
+			var (
+				kept *runner
+				stub = &stubClient{}
+			)
+
+			if c.Kept != nil {
+				kept = prepStubRunner(m, stub, asked.Add(-time.Hour))
+				kept.ds = *c.Kept
+				m.runners = map[xid.ID]*runner{id: kept}
+			}
+
+			r, ok := m.Runner(c.DS).(*runner)
+			require.True(t, ok)
+
+			m.supv.Wait()
+
+			assert.Equal(t, c.DS.Status, r.status)
+			assert.False(t, r.usedAt.Before(asked))
+			testutil.AssertEqualError(t, c.ClientErr, r.clientErr)
+			assert.Zero(t, stub.closes.Load())
+
+			if c.Same {
+				assert.Same(t, kept, r)
+				return
+			}
+
+			assert.NotSame(t, kept, r)
+			assert.Equal(t, c.DS, r.ds)
+			assert.Same(t, kept, m.runners[id])
+
+			if c.ClientErr == nil {
+				assert.IsType(t, &processor.Prometheus{}, r.client)
+			}
+		})
+	}
+}
+
+func Test_Manager_adopt(t *testing.T) {
+	t.Parallel()
+
+	edited := null.TimeFrom(time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC))
+
+	cc := map[string]struct {
+		// Kept is what the manager keeps for the data source before the
+		// call: nothing, the runner itself, another runner for the same
+		// version, or one for an earlier version.
+		Kept string
+
+		// Released indicates whether the manager let the runner go before
+		// the call.
+		Released bool
+
+		// Result is the runner handed back and Held the one kept after the
+		// call: the runner itself, the other one, or nothing.
+		Result string
+		Held   string
+		Closes int32
+	}{
+		"First runner for the data source": {Result: "self", Held: "self"},
+		"Runner already kept":              {Kept: "self", Result: "self", Held: "self"},
+		// the call that adopted first wins, and the loser never connected.
+		"Same version kept by another call": {Kept: "same", Result: "other", Held: "other"},
+		"Edited data source replaces the kept runner": {
+			Kept:   "older",
+			Result: "self",
+			Held:   "self",
+			Closes: 1,
+		},
+		// its connections are closed, so keeping it again would hand them
+		// out.
+		"Runner the manager let go": {Released: true, Result: "self", Held: "none"},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			m := prepManager(t, nil)
+
+			r := &runner{
+				m:        m,
+				ds:       DataSource{ID: xid.New(), UpdatedAt: edited},
+				status:   processor.ConnectionStatusUnreachable,
+				released: c.Released,
+			}
+
+			stub := &stubClient{}
+			other := &runner{m: m, ds: r.ds, client: stub}
+
+			switch c.Kept {
+			case "self":
+				m.runners[r.ds.ID] = r
+			case "same":
+				m.runners[r.ds.ID] = other
+			case "older":
+				other.ds.UpdatedAt = null.Time{}
+				m.runners[r.ds.ID] = other
+			}
+
+			got := m.adopt(r)
+			m.supv.Wait()
+
+			runners := map[string]*runner{"self": r, "other": other}
+
+			assert.Same(t, runners[c.Result], got)
+			assert.Same(t, runners[c.Held], m.runners[r.ds.ID])
+			assert.Equal(t, c.Closes, stub.closes.Load())
+			assert.Equal(t, processor.ConnectionStatusUnreachable, got.status)
+		})
+	}
+}
+
+func Test_Manager_Evict(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		// Known indicates whether the evicted id is one the manager holds.
+		Known  bool
+		Closes int32
+	}{
+		"Known data source":   {Known: true, Closes: 1},
+		"Unknown data source": {},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			m := prepManager(t, nil)
+			stub := &stubClient{}
+			r := prepStubRunner(m, stub, timeutil.Now())
+
+			id := xid.New()
+			if c.Known {
+				id = r.ds.ID
+			}
+
+			m.Evict(id)
+			m.supv.Wait()
+
+			assert.Equal(t, c.Closes, stub.closes.Load())
+
+			_, held := m.runners[r.ds.ID]
+			assert.Equal(t, !c.Known, held)
+		})
+	}
+}
+
+func Test_Manager_drop(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		// Replaced indicates whether another runner took the dropped one's
+		// place before the drop.
+		Replaced bool
+		Closes   int32
+	}{
+		"Current runner": {Closes: 1},
+		// the replacement closed it already.
+		"Replaced runner": {Replaced: true},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			m := prepManager(t, nil)
+			stub := &stubClient{}
+			r := prepStubRunner(m, stub, timeutil.Now())
+
+			replacement := &runner{m: m, ds: r.ds, client: &stubClient{}}
+
+			if c.Replaced {
+				m.runners[r.ds.ID] = replacement
+			}
+
+			m.drop(r)
+			m.supv.Wait()
+
+			assert.Equal(t, c.Closes, stub.closes.Load())
+
+			if c.Replaced {
+				assert.Same(t, replacement, m.runners[r.ds.ID])
+				return
+			}
+
+			assert.Empty(t, m.runners)
+		})
+	}
+}
+
+func Test_Manager_keeps(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		// Held is what the manager keeps for the data source: the runner
+		// itself, another one, or nothing.
+		Held   string
+		Result bool
+	}{
+		"Runner kept":           {Held: "self", Result: true},
+		"Another runner kept":   {Held: "other"},
+		"No runner kept at all": {},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			m := prepManager(t, nil)
+			r := &runner{m: m, ds: DataSource{ID: xid.New()}}
+
+			switch c.Held {
+			case "self":
+				m.runners[r.ds.ID] = r
+			case "other":
+				m.runners[r.ds.ID] = &runner{m: m, ds: r.ds}
+			}
+
+			assert.Equal(t, c.Result, m.keeps(r))
+		})
+	}
+}
+
+func Test_Manager_closeIdle(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		UsedAgo time.Duration
+		Closed  bool
+	}{
+		"Runner unused for _idleAfter": {UsedAgo: _idleAfter, Closed: true},
+		"Runner used since":            {UsedAgo: _idleAfter - time.Minute},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			m := prepManager(t, nil)
+			stub := &stubClient{}
+			r := prepStubRunner(m, stub, timeutil.Now().Add(-c.UsedAgo))
+
+			m.closeIdle(context.Background())
+			m.supv.Wait()
+
+			_, held := m.runners[r.ds.ID]
+			assert.Equal(t, !c.Closed, held)
+
+			if c.Closed {
+				assert.Equal(t, int32(1), stub.closes.Load())
+				return
+			}
+
+			assert.Zero(t, stub.closes.Load())
+		})
+	}
+}
+
+func Test_Manager_release(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Client ownedClient
+		Log    string
+	}{
+		"Client that holds nothing": {
+			Client: &demo.Client{},
+		},
+		"Runner whose client was never built": {},
+		"Client closed": {
+			Client: &stubClient{},
+		},
+		"Close that fails is logged": {
+			Client: &stubClient{closeErr: assert.AnError},
+			Log:    "cannot close data source connections",
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			w, buf := testutil.NewBuffer()
+
+			m := &Manager{
+				log:  slog.New(slog.NewTextHandler(w, nil)),
+				supv: xync.NewSupervisor(),
+			}
+
+			m.release(&runner{m: m, ds: DataSource{ID: xid.New()}, client: c.Client})
+			m.supv.Wait()
+
+			require.NoError(t, w.Flush())
+
+			if stub, ok := c.Client.(*stubClient); ok {
+				assert.Equal(t, int32(1), stub.closes.Load())
+			}
+
+			if c.Log == "" {
+				assert.Empty(t, buf.String())
+				return
+			}
+
+			assert.Contains(t, buf.String(), c.Log)
+		})
+	}
+}
+
+func Test_Manager_newClient(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Type   Type
+		URL    string
+		Client ownedClient
+		Err    error
+	}{
+		"Prometheus":          {Type: TypePrometheus, Client: &processor.Prometheus{}},
+		"Demo Prometheus":     {Type: TypePrometheus, URL: demo.URL, Client: &demo.Client{}},
+		"Unknown demo source": {Type: TypePrometheus, URL: demo.Scheme + "nope", Err: demo.ErrUnknownSource},
+		"PostgreSQL":          {Type: TypePostgreSQL, Client: &processor.PostgreSQL{}},
+		"MySQL":               {Type: TypeMySQL, Client: &processor.MySQL{}},
+		"MariaDB":             {Type: TypeMariaDB, Client: &processor.MySQL{}},
+		"Loki":                {Type: TypeLoki, Client: &processor.Loki{}},
+		"Demo Loki":           {Type: TypeLoki, URL: demo.URL, Client: &demo.Client{}},
+		"Unknown demo Loki":   {Type: TypeLoki, URL: demo.Scheme + "nope", Err: demo.ErrUnknownSource},
+		"Unknown type":        {Type: Type("bogus"), Err: assert.AnError},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			client, err := prepManager(t, nil).newClient(DataSource{Type: c.Type, URL: c.URL})
+			testutil.AssertEqualError(t, c.Err, err)
+
+			if err != nil {
+				assert.Nil(t, client)
+				return
+			}
+
+			assert.IsType(t, c.Client, client)
+		})
+	}
+}
+
+func Test_Manager_prometheusClient(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		URL    string
+		Client ownedClient
+		Err    error
+	}{
+		"Demo data source": {
+			URL:    demo.URL,
+			Client: &demo.Client{},
+		},
+		"Demo scheme naming a source that does not exist": {
+			URL: demo.Scheme + "marketing",
+			Err: demo.ErrUnknownSource,
+		},
+		"Demo scheme with no source at all": {
+			URL: demo.Scheme,
+			Err: demo.ErrUnknownSource,
+		},
+		"Real server": {
+			URL:    "http://prom.test:9090",
+			Client: &processor.Prometheus{},
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			m := prepManager(t, nil)
+
+			client, err := m.prometheusClient(DataSource{Type: TypePrometheus, URL: c.URL})
+			testutil.AssertEqualError(t, c.Err, err)
+
+			if err != nil {
+				assert.Nil(t, client)
+				return
+			}
+
+			assert.IsType(t, c.Client, client)
+
+			// the demo client caches the history it replays, so every
+			// runner reads the manager's rather than building its own.
+			if c.URL == demo.URL {
+				assert.Same(t, m.demo, client)
+			}
+		})
+	}
+}
+
+func Test_Manager_lokiClient(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		URL    string
+		Client ownedClient
+		Err    error
+	}{
+		"Demo data source": {
+			URL:    demo.URL,
+			Client: &demo.Client{},
+		},
+		"Demo scheme naming a source that does not exist": {
+			URL: demo.Scheme + "marketing",
+			Err: demo.ErrUnknownSource,
+		},
+		"Real server": {
+			URL:    "http://loki.test:3100",
+			Client: &processor.Loki{},
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			m := prepManager(t, nil)
+
+			client, err := m.lokiClient(DataSource{Type: TypeLoki, URL: c.URL})
+			testutil.AssertEqualError(t, c.Err, err)
+
+			if err != nil {
+				assert.Nil(t, client)
+				return
+			}
+
+			assert.IsType(t, c.Client, client)
+
+			if c.URL == demo.URL {
+				assert.Same(t, m.demo, client, "the demo answers as Loki out of the client the manager shares")
+			}
+		})
+	}
 }
 
 func Test_runner_Type(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, TypeMariaDB, prepRunner(TypeMariaDB, "", nil).Type())
+	assert.Equal(t, TypeMariaDB, prepRunner(t, TypeMariaDB, "", nil).Type())
 }
 
 func Test_runner_TestConnection(t *testing.T) {
@@ -183,10 +771,15 @@ func Test_runner_TestConnection(t *testing.T) {
 
 	cc := map[string]struct {
 		Type          Type
+		URL           string
 		Handler       http.Handler
 		Undecryptable bool
-		Result        processor.ConnectionStatus
-		Err           error
+
+		// Tests is how many connection tests the two calls reach the data
+		// source with.
+		Tests  int32
+		Result processor.ConnectionStatus
+		Err    error
 	}{
 		"A type with no processor behind it": {
 			Type: Type("bogus"),
@@ -197,15 +790,26 @@ func Test_runner_TestConnection(t *testing.T) {
 			Undecryptable: true,
 			Result:        processor.ConnectionStatusInvalidEncryptionKey,
 		},
+		// a test someone asked for is never answered from one remembered
+		// a moment ago.
 		"A connection that answers": {
 			Type:    TypePrometheus,
 			Handler: testutil.JSONHandler("/api/v1/status/buildinfo", http.StatusOK, `{"status":"success","data":{"version":"2.50.0"}}`),
+			Tests:   2,
 			Result:  processor.ConnectionStatusSuccess,
 		},
 		"A connection that does not": {
 			Type:    TypePrometheus,
 			Handler: testutil.JSONHandler("/api/v1/status/buildinfo", http.StatusInternalServerError, `{}`),
+			Tests:   2,
 			Result:  processor.ConnectionStatusUnreachable,
+		},
+		// the throwaway client's pool is closed after the test, which
+		// goleak would otherwise catch.
+		"A PostgreSQL connection that does not answer": {
+			Type:   TypePostgreSQL,
+			URL:    "postgres://127.0.0.1:1/db",
+			Result: processor.ConnectionStatusUnreachable,
 		},
 	}
 
@@ -213,49 +817,63 @@ func Test_runner_TestConnection(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			var url string
+			var hits atomic.Int32
+
+			url := c.URL
 			if c.Handler != nil {
-				url = prepPrometheusServer(t, c.Handler).URL
+				url = prepPrometheusServer(t, countBuildinfo(c.Handler, &hits), &atomic.Int32{}).URL
 			}
 
 			store := &StatusStoreMock{}
-
-			r := prepRunner(c.Type, url, store)
+			r := prepRunner(t, c.Type, url, store)
 
 			if c.Undecryptable {
 				r.ds.Credentials = undecryptableCredentials(t)
 			}
 
 			cs, err := r.TestConnection(context.Background())
-
 			testutil.AssertEqualError(t, c.Err, err)
+
+			again, aerr := r.TestConnection(context.Background())
+			testutil.AssertEqualError(t, c.Err, aerr)
 
 			// an explicit test is asked about a data source that is
 			// being created or changed, so what it finds is reported and
-			// not recorded.
+			// not recorded, and the runner is not kept for it.
 			assert.Empty(t, store.UpdateDataSourceStatusCalls())
+			assert.Equal(t, c.Tests, hits.Load())
+			assert.True(t, r.testedAt.IsZero())
+			assert.Empty(t, r.m.runners)
 
 			if c.Err != nil {
 				return
 			}
 
 			assert.Equal(t, c.Result, cs)
+			assert.Equal(t, c.Result, again)
 		})
 	}
 }
 
+// Test_runner_Prometheus runs its cases one after another, and Go finishes
+// it before resuming any parallel test: the clients keep idle connections
+// in a transport every test shares, and another test's cleanup closing
+// them would throw off the connection count.
 func Test_runner_Prometheus(t *testing.T) {
-	t.Parallel()
-
 	cc := map[string]struct {
 		Type    Type
 		Handler http.Handler
 		Written int
+		Tests   int32
+		Conns   int32
 		Err     error
 	}{
+		// every read, and the next call's, shares one connection.
 		"A Prometheus data source hands out its client": {
 			Type:    TypePrometheus,
 			Handler: prometheusAPIHandler(),
+			Tests:   1,
+			Conns:   1,
 		},
 		"A data source of another type does not": {
 			Type: TypePostgreSQL,
@@ -270,28 +888,34 @@ func Test_runner_Prometheus(t *testing.T) {
 			Type:    TypePrometheus,
 			Handler: testutil.JSONHandler("/api/v1/status/buildinfo", http.StatusInternalServerError, `{}`),
 			Written: 1,
+			Tests:   1,
+			Conns:   1,
 			Err:     assert.AnError,
 		},
 	}
 
 	for cn, c := range cc {
 		t.Run(cn, func(t *testing.T) {
-			t.Parallel()
+			var hits, conns atomic.Int32
 
 			var url string
 			if c.Handler != nil {
-				url = prepPrometheusServer(t, c.Handler).URL
+				url = prepPrometheusServer(t, countBuildinfo(c.Handler, &hits), &conns).URL
 			}
 
 			store := &StatusStoreMock{}
+			r := prepRunner(t, c.Type, url, store)
 
-			client, err := prepRunner(c.Type, url, store).Prometheus(context.Background())
+			client, err := r.Prometheus(context.Background())
 
 			testutil.AssertEqualError(t, c.Err, err)
 			assert.Len(t, store.UpdateDataSourceStatusCalls(), c.Written)
+			assert.Equal(t, c.Tests, hits.Load())
 
 			if c.Err != nil {
 				assert.Nil(t, client)
+				assert.Equal(t, c.Conns, conns.Load())
+
 				return
 			}
 
@@ -318,23 +942,41 @@ func Test_runner_Prometheus(t *testing.T) {
 			series, serr := client.Series(context.Background(), []string{"up"}, _testTimeRange)
 			require.NoError(t, serr)
 			assert.NotNil(t, series)
+
+			// the next call for the data source gets the same client, and a
+			// test that passed a moment ago is not run again.
+			again, aerr := r.m.Runner(r.ds).Prometheus(context.Background())
+			require.NoError(t, aerr)
+			assert.Same(t, client, again)
+
+			res, qerr = again.QueryRange(context.Background(), "up", _testTimeRange)
+			require.NoError(t, qerr)
+			assert.NotNil(t, res)
+
+			assert.Equal(t, c.Tests, hits.Load())
+			assert.Equal(t, c.Conns, conns.Load())
 		})
 	}
 }
 
+// Test_runner_Logs runs its cases one after another for the reason
+// Test_runner_Prometheus does.
 func Test_runner_Logs(t *testing.T) {
-	t.Parallel()
-
 	cc := map[string]struct {
 		Type    Type
 		URL     string
 		Handler http.Handler
 		Written int
+		Tests   int32
+		Conns   int32
 		Err     error
 	}{
+		// every read, and the next call's, shares one connection.
 		"A Loki data source hands out its client": {
 			Type:    TypeLoki,
 			Handler: lokiAPIHandler(),
+			Tests:   1,
+			Conns:   1,
 		},
 		"The demo answers as Loki": {
 			Type: TypeLoki,
@@ -353,28 +995,34 @@ func Test_runner_Logs(t *testing.T) {
 			Type:    TypeLoki,
 			Handler: testutil.JSONHandler("/loki/api/v1/status/buildinfo", http.StatusUnauthorized, `{}`),
 			Written: 1,
+			Tests:   1,
+			Conns:   1,
 			Err:     assert.AnError,
 		},
 	}
 
 	for cn, c := range cc {
 		t.Run(cn, func(t *testing.T) {
-			t.Parallel()
+			var hits, conns atomic.Int32
 
 			url := c.URL
 			if c.Handler != nil {
-				url = prepLokiServer(t, c.Handler).URL
+				url = prepLokiServer(t, countBuildinfo(c.Handler, &hits), &conns).URL
 			}
 
 			store := &StatusStoreMock{}
+			r := prepRunner(t, c.Type, url, store)
 
-			client, err := prepRunner(c.Type, url, store).Logs(context.Background())
+			client, err := r.Logs(context.Background())
 
 			testutil.AssertEqualError(t, c.Err, err)
 			assert.Len(t, store.UpdateDataSourceStatusCalls(), c.Written)
+			assert.Equal(t, c.Tests, hits.Load())
 
 			if c.Err != nil {
 				assert.Nil(t, client)
+				assert.Equal(t, c.Conns, conns.Load())
+
 				return
 			}
 
@@ -397,6 +1045,19 @@ func Test_runner_Logs(t *testing.T) {
 			values, aerr := client.LogFieldValues(context.Background(), "app", "", _testTimeRange)
 			require.NoError(t, aerr)
 			assert.NotNil(t, values)
+
+			// the next call for the data source gets the same client, and a
+			// test that passed a moment ago is not run again.
+			again, gerr := r.m.Runner(r.ds).Logs(context.Background())
+			require.NoError(t, gerr)
+			assert.Same(t, client, again)
+
+			lines, lerr = again.Logs(context.Background(), `{app="api"}`, _testTimeRange, processor.LogsPage{Limit: 10})
+			require.NoError(t, lerr)
+			assert.NotNil(t, lines)
+
+			assert.Equal(t, c.Tests, hits.Load())
+			assert.Equal(t, c.Conns, conns.Load())
 		})
 	}
 }
@@ -431,7 +1092,7 @@ func Test_runner_PostgreSQL(t *testing.T) {
 
 			store := &StatusStoreMock{}
 
-			_, err := prepRunner(c.Type, c.URL, store).PostgreSQL(context.Background())
+			_, err := prepRunner(t, c.Type, c.URL, store).PostgreSQL(context.Background())
 			testutil.AssertEqualError(t, c.Err, err)
 			assert.Len(t, store.UpdateDataSourceStatusCalls(), c.Written)
 		})
@@ -471,7 +1132,7 @@ func Test_runner_MySQL(t *testing.T) {
 
 			store := &StatusStoreMock{}
 
-			_, err := prepRunner(c.Type, c.URL, store).MySQL(context.Background())
+			_, err := prepRunner(t, c.Type, c.URL, store).MySQL(context.Background())
 			testutil.AssertEqualError(t, c.Err, err)
 			assert.Len(t, store.UpdateDataSourceStatusCalls(), c.Written)
 		})
@@ -514,7 +1175,7 @@ func Test_runner_SQL(t *testing.T) {
 
 			store := &StatusStoreMock{}
 
-			_, err := prepRunner(c.Type, "", store).SQL(context.Background())
+			_, err := prepRunner(t, c.Type, "", store).SQL(context.Background())
 			testutil.AssertEqualError(t, c.Err, err)
 			assert.Len(t, store.UpdateDataSourceStatusCalls(), c.Written)
 		})
@@ -524,7 +1185,7 @@ func Test_runner_SQL(t *testing.T) {
 func Test_connect(t *testing.T) {
 	t.Parallel()
 
-	srv := prepPrometheusServer(t, prometheusAPIHandler())
+	srv := prepPrometheusServer(t, prometheusAPIHandler(), &atomic.Int32{})
 
 	cc := map[string]struct {
 		Type          Type
@@ -568,6 +1229,13 @@ func Test_connect(t *testing.T) {
 			Stored:  processor.ConnectionStatusSuccess,
 			Err:     assert.AnError,
 		},
+		"The client could not be built": {
+			Type:    TypePrometheus,
+			URL:     demo.Scheme + "nope",
+			Allowed: []Type{TypePrometheus},
+			Stored:  processor.ConnectionStatusSuccess,
+			Err:     demo.ErrUnknownSource,
+		},
 	}
 
 	for cn, c := range cc {
@@ -575,8 +1243,8 @@ func Test_connect(t *testing.T) {
 			t.Parallel()
 
 			store := &StatusStoreMock{}
-			r := prepRunner(c.Type, c.URL, store)
-			r.ds.Status = c.Stored
+			r := prepRunner(t, c.Type, c.URL, store)
+			r.status = c.Stored
 
 			if c.Undecryptable {
 				r.ds.Credentials = undecryptableCredentials(t)
@@ -599,6 +1267,243 @@ func Test_connect(t *testing.T) {
 			}
 
 			assert.NotNil(t, client)
+			assert.Same(t, r, r.m.runners[r.ds.ID])
+		})
+	}
+}
+
+func Test_runner_ensureTested(t *testing.T) {
+	t.Parallel()
+
+	type tcase struct {
+		Client *stubClient
+
+		// TestedAgo is how long before now the last test ran, or zero for
+		// never, and Found is what it found.
+		TestedAgo time.Duration
+		Found     processor.ConnectionStatus
+
+		// Released indicates whether the manager let go of the runner
+		// before the call, and EvictedInTest whether it does so while the
+		// call tests the connection.
+		Released      bool
+		EvictedInTest bool
+
+		// Context is the caller's context, ended by Client when it tests
+		// if Cancel is set.
+		Context context.Context
+		Cancel  context.CancelFunc
+
+		// Held indicates whether another call holds the test lock until
+		// the call gives up.
+		Held bool
+
+		// Callers is how many calls test at once.
+		Callers int
+
+		Tests   int32
+		Written int
+		Tested  bool
+		Dropped bool
+		Closes  int32
+		Err     error
+	}
+
+	cc := map[string]tcase{
+		"A runner never tested is tested": {
+			Client:  &stubClient{status: processor.ConnectionStatusSuccess},
+			Callers: 1,
+			Tests:   1,
+			Tested:  true,
+		},
+		"A test that passed a moment ago is not repeated": {
+			Client:    &stubClient{status: processor.ConnectionStatusSuccess},
+			TestedAgo: _statusTTL / 2,
+			Found:     processor.ConnectionStatusSuccess,
+			Callers:   1,
+			Tested:    true,
+		},
+		"A test that failed a moment ago is not repeated": {
+			Client:    &stubClient{status: processor.ConnectionStatusSuccess},
+			TestedAgo: _statusTTL / 2,
+			Found:     processor.ConnectionStatusUnreachable,
+			Callers:   1,
+			Tested:    true,
+			Err:       processor.ConnectionStatusUnreachable.Error(),
+		},
+		"A test older than _statusTTL is repeated": {
+			Client:    &stubClient{status: processor.ConnectionStatusSuccess},
+			TestedAgo: _statusTTL,
+			Found:     processor.ConnectionStatusUnreachable,
+			Callers:   1,
+			Tests:     1,
+			Tested:    true,
+		},
+		// the calls waiting behind the first test reuse what it found.
+		"Calls at once share one test": {
+			Client:  &stubClient{status: processor.ConnectionStatusSuccess},
+			Callers: 5,
+			Tests:   1,
+			Tested:  true,
+		},
+		"A failing test drops the runner": {
+			Client:  &stubClient{status: processor.ConnectionStatusUnreachable},
+			Callers: 1,
+			Tests:   1,
+			Written: 1,
+			Tested:  true,
+			Dropped: true,
+			Closes:  1,
+			Err:     processor.ConnectionStatusUnreachable.Error(),
+		},
+		// the calls waiting behind a failing test get its answer rather
+		// than each testing the connection it closed.
+		"Calls at once share one failing test": {
+			Client:  &stubClient{status: processor.ConnectionStatusUnreachable},
+			Callers: 5,
+			Tests:   1,
+			Written: 1,
+			Tested:  true,
+			Dropped: true,
+			Closes:  1,
+			Err:     processor.ConnectionStatusUnreachable.Error(),
+		},
+		// the calls that waited behind a failing test hold the runner it
+		// dropped, and the failure is their answer.
+		"A dropped runner hands its failure to the calls that waited": {
+			Client:    &stubClient{status: processor.ConnectionStatusSuccess},
+			TestedAgo: _statusTTL / 2,
+			Found:     processor.ConnectionStatusUnreachable,
+			Released:  true,
+			Callers:   1,
+			Tested:    true,
+			Dropped:   true,
+			Err:       processor.ConnectionStatusUnreachable.Error(),
+		},
+		// its connections are closed, so a pass from before must not hand
+		// them out.
+		"A runner let go after a passing test": {
+			Client:    &stubClient{status: processor.ConnectionStatusSuccess},
+			TestedAgo: _statusTTL / 2,
+			Found:     processor.ConnectionStatusSuccess,
+			Released:  true,
+			Callers:   1,
+			Tested:    true,
+			Dropped:   true,
+			Err:       _errDataSourceChanged,
+		},
+		// the test failed only because its connections were closed under
+		// it, which says nothing about the data source.
+		"A runner let go during its test": {
+			Client:        &stubClient{status: processor.ConnectionStatusUnreachable},
+			EvictedInTest: true,
+			Callers:       1,
+			Tests:         1,
+			Dropped:       true,
+			Closes:        1,
+			Err:           _errDataSourceChanged,
+		},
+		// its connections are closed, so a test would only report them as
+		// unreachable.
+		"A runner the manager let go is not tested": {
+			Client:   &stubClient{status: processor.ConnectionStatusSuccess},
+			Released: true,
+			Callers:  1,
+			Dropped:  true,
+			Err:      _errDataSourceChanged,
+		},
+		"Error returned by TestConnection": {
+			Client:  &stubClient{err: assert.AnError},
+			Callers: 1,
+			Tests:   1,
+			Err:     assert.AnError,
+		},
+		"A caller that gave up waiting for the test lock": func() tcase {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			return tcase{
+				Client:  &stubClient{status: processor.ConnectionStatusSuccess},
+				Context: ctx,
+				Held:    true,
+				Callers: 1,
+				Err:     context.Canceled,
+			}
+		}(),
+		// a test the caller gave up on says nothing about the data
+		// source, so nothing is recorded or dropped.
+		"A caller that gave up during the test": func() tcase {
+			ctx, cancel := context.WithCancel(context.Background())
+
+			return tcase{
+				Client:  &stubClient{status: processor.ConnectionStatusUnreachable, onTest: cancel},
+				Context: ctx,
+				Cancel:  cancel,
+				Callers: 1,
+				Tests:   1,
+				Err:     context.Canceled,
+			}
+		}(),
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			if c.Cancel != nil {
+				t.Cleanup(c.Cancel)
+			}
+
+			ctx := c.Context
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			store := &StatusStoreMock{}
+
+			m := prepManager(t, store)
+			r := prepStubRunner(m, c.Client, timeutil.Now())
+
+			if c.TestedAgo > 0 {
+				r.testedAt = timeutil.Now().Add(-c.TestedAgo)
+				r.tested = c.Found
+			}
+
+			if c.Released {
+				delete(m.runners, r.ds.ID)
+			}
+
+			if c.EvictedInTest {
+				c.Client.onTest = func() { m.Evict(r.ds.ID) }
+			}
+
+			// holding the test lock lines every caller up behind it.
+			unlock, err := m.tests.Lock(context.Background(), r.ds.ID)
+			require.NoError(t, err)
+
+			supv := xync.NewSupervisor()
+
+			for range c.Callers {
+				supv.Go(func(context.Context) {
+					testutil.AssertEqualError(t, c.Err, r.ensureTested(ctx))
+				})
+			}
+
+			if c.Held {
+				supv.Wait()
+			}
+
+			unlock()
+			supv.Wait()
+			m.supv.Wait()
+
+			assert.Equal(t, c.Tests, c.Client.tests.Load())
+			assert.Len(t, store.UpdateDataSourceStatusCalls(), c.Written)
+			assert.Equal(t, c.Tested, !r.testedAt.IsZero())
+
+			_, held := m.runners[r.ds.ID]
+			assert.Equal(t, !c.Dropped, held)
+			assert.Equal(t, c.Closes, c.Client.closes.Load())
 		})
 	}
 }
@@ -634,7 +1539,7 @@ func Test_runner_recordStatus(t *testing.T) {
 			},
 			Written: 1,
 		},
-		// a runner built without a store has nowhere to record and says
+		// a manager built without a store has nowhere to record and says
 		// so by doing nothing.
 		"A runner without a store records nothing": {
 			Stored:   processor.ConnectionStatusSuccess,
@@ -652,150 +1557,17 @@ func Test_runner_recordStatus(t *testing.T) {
 				store = &StatusStoreMock{}
 			}
 
-			r := prepRunner(TypePrometheus, "", store)
-			r.ds.Status = c.Stored
+			r := prepRunner(t, TypePrometheus, "", store)
+			r.status = c.Stored
 
 			if c.NoStore {
-				r.store = nil
+				r.m.store = nil
 			}
 
 			r.recordStatus(context.Background(), c.Observed)
 
 			assert.Len(t, store.UpdateDataSourceStatusCalls(), c.Written)
-		})
-	}
-}
-
-func Test_runner_ensurePrepared(t *testing.T) {
-	t.Parallel()
-
-	cc := map[string]struct {
-		Type Type
-		URL  string
-		Err  error
-	}{
-		"Prometheus":          {Type: TypePrometheus},
-		"Demo Prometheus":     {Type: TypePrometheus, URL: demo.URL},
-		"Unknown demo source": {Type: TypePrometheus, URL: demo.Scheme + "nope", Err: demo.ErrUnknownSource},
-		"PostgreSQL":          {Type: TypePostgreSQL},
-		"MySQL":               {Type: TypeMySQL},
-		"MariaDB":             {Type: TypeMariaDB},
-		"Loki":                {Type: TypeLoki},
-		"Demo Loki":           {Type: TypeLoki, URL: demo.URL},
-		"Unknown demo Loki":   {Type: TypeLoki, URL: demo.Scheme + "nope", Err: demo.ErrUnknownSource},
-		"Unknown type":        {Type: Type("bogus"), Err: assert.AnError},
-	}
-
-	for cn, c := range cc {
-		t.Run(cn, func(t *testing.T) {
-			t.Parallel()
-
-			r := prepRunner(c.Type, c.URL, nil)
-
-			err := r.ensurePrepared()
-
-			testutil.AssertEqualError(t, c.Err, err)
-
-			if c.Err != nil {
-				assert.False(t, r.prepared)
-				return
-			}
-
-			require.True(t, r.prepared)
-			require.NotNil(t, r.client)
-
-			// preparing twice keeps the processor already built
-			client := r.client
-			require.NoError(t, r.ensurePrepared())
-			assert.Same(t, client, r.client)
-		})
-	}
-}
-
-func Test_runner_prometheusClient(t *testing.T) {
-	t.Parallel()
-
-	cc := map[string]struct {
-		URL    string
-		Client connectionTester
-		Err    error
-	}{
-		"Demo data source": {
-			URL:    demo.URL,
-			Client: &demo.Client{},
-		},
-		"Demo scheme naming a source that does not exist": {
-			URL: demo.Scheme + "marketing",
-			Err: demo.ErrUnknownSource,
-		},
-		"Demo scheme with no source at all": {
-			URL: demo.Scheme,
-			Err: demo.ErrUnknownSource,
-		},
-		"Real server": {
-			URL:    "http://prom.test:9090",
-			Client: &processor.Prometheus{},
-		},
-	}
-
-	for cn, c := range cc {
-		t.Run(cn, func(t *testing.T) {
-			t.Parallel()
-
-			client, err := prepRunner(TypePrometheus, c.URL, nil).prometheusClient()
-			testutil.AssertEqualError(t, c.Err, err)
-
-			if err != nil {
-				assert.Nil(t, client)
-				return
-			}
-
-			assert.IsType(t, c.Client, client)
-		})
-	}
-}
-
-func Test_runner_lokiClient(t *testing.T) {
-	t.Parallel()
-
-	cc := map[string]struct {
-		URL    string
-		Client connectionTester
-		Err    error
-	}{
-		"Demo data source": {
-			URL:    demo.URL,
-			Client: &demo.Client{},
-		},
-		"Demo scheme naming a source that does not exist": {
-			URL: demo.Scheme + "marketing",
-			Err: demo.ErrUnknownSource,
-		},
-		"Real server": {
-			URL:    "http://loki.test:3100",
-			Client: &processor.Loki{},
-		},
-	}
-
-	for cn, c := range cc {
-		t.Run(cn, func(t *testing.T) {
-			t.Parallel()
-
-			r := prepRunner(TypeLoki, c.URL, nil)
-
-			client, err := r.lokiClient()
-			testutil.AssertEqualError(t, c.Err, err)
-
-			if err != nil {
-				assert.Nil(t, client)
-				return
-			}
-
-			assert.IsType(t, c.Client, client)
-
-			if c.URL == demo.URL {
-				assert.Same(t, r.demo, client, "the demo answers as Loki out of the client the manager shares")
-			}
+			assert.Equal(t, c.Observed, r.status)
 		})
 	}
 }

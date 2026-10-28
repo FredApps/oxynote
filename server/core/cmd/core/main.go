@@ -320,6 +320,8 @@ func main() { //nolint:maintidx,cyclop // main performs linear wiring of all com
 	}
 
 	datasourceMan := datasource.NewManager(log, dbc)
+	closers = append([]io.Closer{datasourceMan}, closers...)
+
 	simulationChecker := simulation.NewChecker(log, dbc, datasourceMan, editClient)
 	blockRunner := blockrun.NewRunner(dbc, simulationChecker)
 
@@ -435,6 +437,7 @@ func main() { //nolint:maintidx,cyclop // main performs linear wiring of all com
 	backgroundSupv.Go(filesMan.Start)
 	backgroundSupv.Go(assistantMan.Start)
 	backgroundSupv.Go(simulationChecker.Start)
+	backgroundSupv.Go(datasourceMan.Start)
 	backgroundSupv.Go(jobMan.Start)
 
 	<-termCtx.Done()

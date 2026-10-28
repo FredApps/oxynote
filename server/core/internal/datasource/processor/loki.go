@@ -108,6 +108,12 @@ func NewLoki(inp Input) *Loki {
 	}
 }
 
+// Close does nothing: the connections a Loki client opens belong to the
+// transport every client shares.
+func (l *Loki) Close() error {
+	return nil
+}
+
 // TestConnection tests the connection to the Loki data source.
 //
 // A version that does not parse is accepted: Grafana Cloud reports its

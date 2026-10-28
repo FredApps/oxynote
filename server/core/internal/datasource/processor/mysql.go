@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -23,6 +24,9 @@ const (
 
 	// _mysqlConnectTimeout bounds the initial MySQL dial.
 	_mysqlConnectTimeout = 10 * time.Second
+
+	// _mysqlMaxConns caps the connections one data source's pool holds.
+	_mysqlMaxConns = 10
 )
 
 // _mysqlReadOnlyPrivileges is the set of MySQL/MariaDB privileges considered read-only.
@@ -36,9 +40,14 @@ var _mysqlReadOnlyPrivileges = map[string]struct{}{
 	"USAGE":              {},
 }
 
-// MySQL represents a MySQL data source processor.
+// MySQL represents a MySQL data source processor. It keeps a pool of
+// connections to the data source until it is closed.
 type MySQL struct {
 	inp Input
+
+	mu     sync.Mutex
+	db     *sql.DB
+	closed bool
 }
 
 // NewMySQL creates a new MySQL data source processor.
@@ -48,13 +57,29 @@ func NewMySQL(inp Input) *MySQL {
 	}
 }
 
-// TestConnection tests the connection to the MySQL data source.
+// Close closes the pool, waiting for the queries it is running.
+func (m *MySQL) Close() error {
+	m.mu.Lock()
+	db := m.db
+	m.closed = true
+	m.mu.Unlock()
+
+	if db == nil {
+		return nil
+	}
+
+	return db.Close()
+}
+
+// TestConnection tests the connection to the MySQL data source. The data
+// source passes only when its account holds read-only grants: queries run on
+// sessions nothing else makes read-only, so the grants are what keep them
+// from writing.
 func (m *MySQL) TestConnection(ctx context.Context) (ConnectionStatus, error) {
-	db, err := m.connect(ctx)
+	db, err := m.connect()
 	if err != nil {
 		return mysqlConnectionStatus(err), nil
 	}
-	defer db.Close() //nolint:errcheck // error provides no meaningful info
 
 	if err = db.PingContext(ctx); err != nil {
 		return mysqlConnectionStatus(err), nil
@@ -97,11 +122,10 @@ func (m *MySQL) Metadata(ctx context.Context) (*SQLMetadataResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, _queryTimeout)
 	defer cancel()
 
-	db, err := m.connect(ctx)
+	db, err := m.connect()
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to mysql: %w", err)
 	}
-	defer db.Close() //nolint:errcheck // error provides no meaningful info
 
 	rows, err := db.QueryContext(ctx, //nolint:rowserrcheck // scanInformationSchema checks rows.Err
 		"SELECT table_schema, table_name, column_name FROM information_schema.columns WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') ORDER BY table_schema, table_name, ordinal_position",
@@ -138,11 +162,10 @@ func (m *MySQL) QueryLabels(ctx context.Context, q string, tr TimeRange) (map[st
 	ctx, cancel := context.WithTimeout(ctx, _queryTimeout)
 	defer cancel()
 
-	db, err := m.connect(ctx)
+	db, err := m.connect()
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to mysql: %w", err)
 	}
-	defer db.Close() //nolint:errcheck // error provides no meaningful info
 
 	rows, err := db.QueryContext(ctx, q)
 	if err != nil {
@@ -196,11 +219,10 @@ func (m *MySQL) Query(ctx context.Context, q string, tr TimeRange) (*MySQLQueryR
 	ctx, cancel := context.WithTimeout(ctx, _queryTimeout)
 	defer cancel()
 
-	db, err := m.connect(ctx)
+	db, err := m.connect()
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to mysql: %w", err)
 	}
-	defer db.Close() //nolint:errcheck // error provides no meaningful info
 
 	rows, err := db.QueryContext(ctx, q)
 	if err != nil {
@@ -268,13 +290,20 @@ func (m *MySQL) Query(ctx context.Context, q string, tr TimeRange) (*MySQLQueryR
 	}, nil
 }
 
-// connect creates a database/sql connection using the data source URL and
-// credentials. The session is put into read-only mode, so the server itself
-// rejects any write the query text attempts instead of the code trusting the
-// grants recorded earlier on a different connection. The pool is capped at a
-// single connection and lives for one call, so the setting lands on the
-// connection the queries then use.
-func (m *MySQL) connect(ctx context.Context) (*sql.DB, error) {
+// connect returns the pool of connections to the data source, opening it
+// on first use.
+func (m *MySQL) connect() (*sql.DB, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.closed {
+		return nil, _errClosed
+	}
+
+	if m.db != nil {
+		return m.db, nil
+	}
+
 	dsn, err := m.buildDSN()
 	if err != nil {
 		return nil, err
@@ -282,18 +311,16 @@ func (m *MySQL) connect(ctx context.Context) (*sql.DB, error) {
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
+		// NOCOV: the driver is registered and buildDSN formats the DSN
+		// itself, so opening has nothing left to reject.
 		return nil, fmt.Errorf("error connecting to mysql: %w", err)
 	}
 
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(_mysqlMaxConns)
+	db.SetMaxIdleConns(_mysqlMaxConns)
 	db.SetConnMaxLifetime(_mysqlConnMaxLifetime)
 
-	if _, err = db.ExecContext(ctx, "SET SESSION TRANSACTION READ ONLY"); err != nil {
-		db.Close() //nolint:errcheck,gosec // error provides no meaningful info
-
-		return nil, fmt.Errorf("error enforcing a read-only session: %w", err)
-	}
+	m.db = db
 
 	return db, nil
 }

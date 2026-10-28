@@ -99,6 +99,12 @@ func Test_NewClient(t *testing.T) {
 	}
 }
 
+func Test_Client_Close(t *testing.T) {
+	t.Parallel()
+
+	assert.NoError(t, NewClient().Close())
+}
+
 func Test_Client_TestConnection(t *testing.T) {
 	t.Parallel()
 
