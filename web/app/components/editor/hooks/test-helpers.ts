@@ -5,8 +5,8 @@ import { mountSuspended } from "@nuxt/test-utils/runtime"
 import {
 	DropdownMenu,
 	DropdownMenuContent,
-} from "~/components/shadcn/ui/dropdown-menu"
-import { TooltipProvider } from "~/components/shadcn/ui/tooltip"
+} from "#layers/ui/app/components/shadcn/ui/dropdown-menu"
+import { TooltipProvider } from "#layers/ui/app/components/shadcn/ui/tooltip"
 
 // eslint's ts program resolves .vue imports as error typed, so a
 // component handed to mountHookMenu looks unsafe to it while vue-tsc
@@ -26,7 +26,7 @@ export function makeHook(overrides: Partial<DocumentHook> = {}): DocumentHook {
 		settings: { url: "https://example.com" },
 		state: {},
 		status: "active",
-		score: "100",
+		triggered: false,
 		createdAt: new Date("2026-01-01T00:00:00Z"),
 		...overrides,
 	}

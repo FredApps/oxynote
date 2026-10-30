@@ -46,6 +46,12 @@ func (s *Server) wsRouter() *wsserver.Router {
 		},
 	)
 
+	binderFn("change@variables",
+		func(tpc wsserver.Topic) {
+			s.handlers.variable.BindChange(tpc)
+		},
+	)
+
 	binderFn("change@documents.{documentId}.comments",
 		func(tpc wsserver.Topic) {
 			s.handlers.comment.BindCommentsChange(tpc)
@@ -226,7 +232,6 @@ func (s *Server) router() chi.Router {
 			ssr.Delete("/", s.handlers.github.DisconnectOrganization)
 			ssr.Get("/install", s.handlers.github.FetchInstall)
 			ssr.Get("/connect", s.handlers.github.ConnectOrganization)
-			ssr.Get("/issues", s.handlers.github.FetchIssues)
 			ssr.Route("/repositories", func(sssr chi.Router) {
 				sssr.Get("/", s.handlers.github.FetchRepositories)
 				sssr.Route("/{repository}", func(ssssr chi.Router) {
@@ -283,6 +288,14 @@ func (s *Server) router() chi.Router {
 			ssr.Delete("/", s.handlers.datasource.DeleteDataSource)
 			ssr.Get("/connection", s.handlers.datasource.TestDataSourceConnection)
 			ssr.Get("/query", s.handlers.datasource.QueryDataSource)
+			ssr.Route("/logs", func(sssr chi.Router) {
+				sssr.Get("/", s.handlers.datasource.FetchDataSourceLogs)
+				sssr.Get("/volume", s.handlers.datasource.FetchDataSourceLogVolume)
+				sssr.Route("/fields", func(ssssr chi.Router) {
+					ssssr.Get("/", s.handlers.datasource.FetchDataSourceLogFields)
+					ssssr.Get("/{field}/values", s.handlers.datasource.FetchDataSourceLogFieldValues)
+				})
+			})
 			ssr.Route("/prometheus", func(sssr chi.Router) {
 				sssr.Get("/metadata", s.handlers.datasource.FetchPrometheusDataSourceMetadata)
 				sssr.Get("/series", s.handlers.datasource.FetchPrometheusDataSourceSeries)
@@ -315,6 +328,7 @@ func (s *Server) router() chi.Router {
 				sssr.Get("/", s.handlers.document.FetchDocumentBranches)
 				sssr.Route("/{branchId}", func(ssssr chi.Router) {
 					ssssr.Put("/review-approve", s.handlers.document.UpdateBranchReviewApproval)
+					ssssr.Get("/views", s.handlers.document.FetchDocumentBranchViews)
 					ssssr.Post("/views", s.handlers.document.RecordDocumentBranchView)
 					ssssr.Get("/search", s.handlers.document.SearchDocumentBranch)
 					ssssr.Post("/blocks/{blockUid}/run", s.handlers.block.RunBlock)
@@ -369,8 +383,30 @@ func (s *Server) router() chi.Router {
 		})
 	})
 
+	r.Route("/variables", func(sr chi.Router) {
+		sr.Post("/", s.handlers.variable.CreateVariable)
+		sr.Route("/tree", func(ssr chi.Router) {
+			ssr.Get("/", s.handlers.variable.FetchVariableTree)
+			ssr.Put("/", s.handlers.variable.UpdateVariableTree)
+		})
+		sr.Route("/groups", func(ssr chi.Router) {
+			ssr.Post("/", s.handlers.variable.CreateVariableGroup)
+			ssr.Put("/tree", s.handlers.variable.UpdateVariableGroupTree)
+			ssr.Put("/{groupId}", s.handlers.variable.UpdateVariableGroup)
+			ssr.Delete("/{groupId}", s.handlers.variable.DeleteVariableGroup)
+		})
+		sr.Route("/{variableId}", func(ssr chi.Router) {
+			ssr.Put("/", s.handlers.variable.UpdateVariable)
+			ssr.Delete("/", s.handlers.variable.DeleteVariable)
+			ssr.Put("/default", s.handlers.variable.SetVariableDefault)
+			ssr.Put("/value", s.handlers.variable.SetVariableValue)
+			ssr.Delete("/value", s.handlers.variable.ResetVariableValue)
+		})
+	})
+
 	r.Route("/tags", func(sr chi.Router) {
 		sr.Post("/", s.handlers.tag.CreateTag)
+		sr.Put("/{tagId}", s.handlers.tag.UpdateTag)
 		sr.Put("/{tagId}/visibility", s.handlers.tag.SetTagVisibility)
 		sr.Delete("/{tagId}", s.handlers.tag.DeleteTag)
 		sr.Route("/tree", func(ssr chi.Router) {

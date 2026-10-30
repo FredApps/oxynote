@@ -3,7 +3,7 @@ import Heading from "@tiptap/extension-heading"
 import { Extension, isNodeEmpty } from "@tiptap/core"
 import type { Editor } from "@tiptap/core"
 import type { Node as ProsemirrorNode } from "@tiptap/pm/model"
-import { cn } from "~/lib/utils"
+import { cn } from "#layers/ui/app/lib/utils"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import {
@@ -301,8 +301,7 @@ const DynamicPlaceholder = Extension.create<DynamicPlaceholderOptions>({
 
 						const isEmptyDoc = this.editor.isEmpty
 
-						doc.descendants((node, pos) => {
-							const nodeParent = doc.resolve(pos).parent
+						doc.descendants((node, pos, parent) => {
 							const hasAnchor = anchor >= pos && anchor <= pos + node.nodeSize
 							const isEmpty = !node.isLeaf && isNodeEmpty(node)
 
@@ -311,7 +310,7 @@ const DynamicPlaceholder = Extension.create<DynamicPlaceholderOptions>({
 								Array.isArray(this.options.showOnlyNodes) &&
 								this.options.showOnlyNodes.some((nodeFilter) => {
 									if (nodeFilter.parent) {
-										return nodeFilter.name === nodeParent.type.name
+										return nodeFilter.name === parent?.type.name
 									}
 
 									return nodeFilter.name === node.type.name

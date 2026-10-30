@@ -68,6 +68,9 @@ var _ DB = &DBMock{}
 //			FetchDocumentFunc: func(ctx context.Context, id xid.ID, organizationID string, branchName string) (*documentCore.Document, error) {
 //				panic("mock out the FetchDocument method")
 //			},
+//			FetchDocumentBranchViewsFunc: func(ctx context.Context, branchID xid.ID, organizationID string) ([]documentCore.BranchView, error) {
+//				panic("mock out the FetchDocumentBranchViews method")
+//			},
 //			FetchDocumentBranchesFunc: func(ctx context.Context, docID xid.ID, organizationID string) ([]documentCore.BranchSummary, error) {
 //				panic("mock out the FetchDocumentBranches method")
 //			},
@@ -115,9 +118,6 @@ var _ DB = &DBMock{}
 //			},
 //			InsertDocumentHookFunc: func(ctx context.Context, hk hook.Hook) error {
 //				panic("mock out the InsertDocumentHook method")
-//			},
-//			InsertSearchJobFunc: func(ctx context.Context, job search.Job) error {
-//				panic("mock out the InsertSearchJob method")
 //			},
 //			PromoteBranchApprovalsFunc: func(ctx context.Context, fromBranchID xid.ID, toBranchID xid.ID, organizationID string) error {
 //				panic("mock out the PromoteBranchApprovals method")
@@ -198,6 +198,9 @@ type DBMock struct {
 	// FetchDocumentFunc mocks the FetchDocument method.
 	FetchDocumentFunc func(ctx context.Context, id xid.ID, organizationID string, branchName string) (*documentCore.Document, error)
 
+	// FetchDocumentBranchViewsFunc mocks the FetchDocumentBranchViews method.
+	FetchDocumentBranchViewsFunc func(ctx context.Context, branchID xid.ID, organizationID string) ([]documentCore.BranchView, error)
+
 	// FetchDocumentBranchesFunc mocks the FetchDocumentBranches method.
 	FetchDocumentBranchesFunc func(ctx context.Context, docID xid.ID, organizationID string) ([]documentCore.BranchSummary, error)
 
@@ -245,9 +248,6 @@ type DBMock struct {
 
 	// InsertDocumentHookFunc mocks the InsertDocumentHook method.
 	InsertDocumentHookFunc func(ctx context.Context, hk hook.Hook) error
-
-	// InsertSearchJobFunc mocks the InsertSearchJob method.
-	InsertSearchJobFunc func(ctx context.Context, job search.Job) error
 
 	// PromoteBranchApprovalsFunc mocks the PromoteBranchApprovals method.
 	PromoteBranchApprovalsFunc func(ctx context.Context, fromBranchID xid.ID, toBranchID xid.ID, organizationID string) error
@@ -415,6 +415,15 @@ type DBMock struct {
 			// BranchName is the branchName argument value.
 			BranchName string
 		}
+		// FetchDocumentBranchViews holds details about calls to the FetchDocumentBranchViews method.
+		FetchDocumentBranchViews []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// BranchID is the branchID argument value.
+			BranchID xid.ID
+			// OrganizationID is the organizationID argument value.
+			OrganizationID string
+		}
 		// FetchDocumentBranches holds details about calls to the FetchDocumentBranches method.
 		FetchDocumentBranches []struct {
 			// Ctx is the ctx argument value.
@@ -547,13 +556,6 @@ type DBMock struct {
 			// Hk is the hk argument value.
 			Hk hook.Hook
 		}
-		// InsertSearchJob holds details about calls to the InsertSearchJob method.
-		InsertSearchJob []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Job is the job argument value.
-			Job search.Job
-		}
 		// PromoteBranchApprovals holds details about calls to the PromoteBranchApprovals method.
 		PromoteBranchApprovals []struct {
 			// Ctx is the ctx argument value.
@@ -671,6 +673,7 @@ type DBMock struct {
 	lockFetchBranchReviewer                 sync.RWMutex
 	lockFetchBranchReviewers                sync.RWMutex
 	lockFetchDocument                       sync.RWMutex
+	lockFetchDocumentBranchViews            sync.RWMutex
 	lockFetchDocumentBranches               sync.RWMutex
 	lockFetchDocumentBranchesUnsafe         sync.RWMutex
 	lockFetchDocumentByBranchID             sync.RWMutex
@@ -687,7 +690,6 @@ type DBMock struct {
 	lockInsertDocumentBranch                sync.RWMutex
 	lockInsertDocumentFile                  sync.RWMutex
 	lockInsertDocumentHook                  sync.RWMutex
-	lockInsertSearchJob                     sync.RWMutex
 	lockPromoteBranchApprovals              sync.RWMutex
 	lockRecordDocumentBranchHistoryEntry    sync.RWMutex
 	lockReplaceBranchTags                   sync.RWMutex
@@ -1322,6 +1324,50 @@ func (mock *DBMock) FetchDocumentCalls() []struct {
 	mock.lockFetchDocument.RLock()
 	calls = mock.calls.FetchDocument
 	mock.lockFetchDocument.RUnlock()
+	return calls
+}
+
+// FetchDocumentBranchViews calls FetchDocumentBranchViewsFunc.
+func (mock *DBMock) FetchDocumentBranchViews(ctx context.Context, branchID xid.ID, organizationID string) ([]documentCore.BranchView, error) {
+	callInfo := struct {
+		Ctx            context.Context
+		BranchID       xid.ID
+		OrganizationID string
+	}{
+		Ctx:            ctx,
+		BranchID:       branchID,
+		OrganizationID: organizationID,
+	}
+	mock.lockFetchDocumentBranchViews.Lock()
+	mock.calls.FetchDocumentBranchViews = append(mock.calls.FetchDocumentBranchViews, callInfo)
+	mock.lockFetchDocumentBranchViews.Unlock()
+	if mock.FetchDocumentBranchViewsFunc == nil {
+		var (
+			branchViewsOut []documentCore.BranchView
+			errOut         error
+		)
+		return branchViewsOut, errOut
+	}
+	return mock.FetchDocumentBranchViewsFunc(ctx, branchID, organizationID)
+}
+
+// FetchDocumentBranchViewsCalls gets all the calls that were made to FetchDocumentBranchViews.
+// Check the length with:
+//
+//	len(mockedDB.FetchDocumentBranchViewsCalls())
+func (mock *DBMock) FetchDocumentBranchViewsCalls() []struct {
+	Ctx            context.Context
+	BranchID       xid.ID
+	OrganizationID string
+} {
+	var calls []struct {
+		Ctx            context.Context
+		BranchID       xid.ID
+		OrganizationID string
+	}
+	mock.lockFetchDocumentBranchViews.RLock()
+	calls = mock.calls.FetchDocumentBranchViews
+	mock.lockFetchDocumentBranchViews.RUnlock()
 	return calls
 }
 
@@ -1997,45 +2043,6 @@ func (mock *DBMock) InsertDocumentHookCalls() []struct {
 	mock.lockInsertDocumentHook.RLock()
 	calls = mock.calls.InsertDocumentHook
 	mock.lockInsertDocumentHook.RUnlock()
-	return calls
-}
-
-// InsertSearchJob calls InsertSearchJobFunc.
-func (mock *DBMock) InsertSearchJob(ctx context.Context, job search.Job) error {
-	callInfo := struct {
-		Ctx context.Context
-		Job search.Job
-	}{
-		Ctx: ctx,
-		Job: job,
-	}
-	mock.lockInsertSearchJob.Lock()
-	mock.calls.InsertSearchJob = append(mock.calls.InsertSearchJob, callInfo)
-	mock.lockInsertSearchJob.Unlock()
-	if mock.InsertSearchJobFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.InsertSearchJobFunc(ctx, job)
-}
-
-// InsertSearchJobCalls gets all the calls that were made to InsertSearchJob.
-// Check the length with:
-//
-//	len(mockedDB.InsertSearchJobCalls())
-func (mock *DBMock) InsertSearchJobCalls() []struct {
-	Ctx context.Context
-	Job search.Job
-} {
-	var calls []struct {
-		Ctx context.Context
-		Job search.Job
-	}
-	mock.lockInsertSearchJob.RLock()
-	calls = mock.calls.InsertSearchJob
-	mock.lockInsertSearchJob.RUnlock()
 	return calls
 }
 

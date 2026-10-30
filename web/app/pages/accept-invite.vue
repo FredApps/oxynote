@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { showToastMessage } from "~/components/toast"
-import { cn } from "~/lib/utils"
+import { cn } from "#layers/ui/app/lib/utils"
 
 definePageMeta({
 	middleware: async (to) => {
@@ -62,6 +62,7 @@ function navigateToSignupWithRedirect() {
 
 async function acceptInvite() {
 	if (!isAuthenticated.value) {
+		// NOCOV: the button calls this only for a signed-in user.
 		return
 	}
 
@@ -163,7 +164,7 @@ async function logOut(silent = false) {
 						loading === 'accept' && 'pointer-events-none',
 					)
 				"
-				@click="logOut"
+				@click="logOut()"
 			>
 				{{ $t("onboarding.accept-invite.login-info.logout") }}
 			</ShadcnUiButton>

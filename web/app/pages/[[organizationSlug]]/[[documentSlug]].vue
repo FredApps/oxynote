@@ -123,6 +123,7 @@ const { fetchOrganization } = useAuthSession()
 const { t } = useI18n({ useScope: "global" })
 const { isAssistantEnabled } = useCapabilitiesAPI()
 const wsState = useWebSocketStateStore()
+const sidebarOpen = useSidebarOpenState()
 let unsubWsDocMetadataChange: (() => void) | null | undefined = null
 
 // we use this to track whether all sections have loaded their initial data
@@ -140,6 +141,7 @@ const createLoading = ref(false)
 const settingModalOpen = ref<
 	boolean | "org-members" | "github" | "metric-data-sources"
 >(false)
+const searchModalOpen = ref(false)
 const shortcutsModalOpen = ref(false)
 const pendingDocDeletion = ref<{
 	deleteDocument: () => Promise<void>
@@ -150,28 +152,39 @@ const pendingTagDeletion = ref<{
 	name: string
 } | null>(null)
 const notificationSidebarOpen = ref(false)
+const variableSidebarOpen = ref(false)
+const variableEditing = ref(false)
 // the url hash that links a block. Every replace of the url takes its hash
 // from here, because the route still holds a dropped hash until the
 // replace that dropped it lands
 const linkedBlockHash = ref(pageRoute.hash)
 const contentEditorRef = shallowRef<Editor | null>(null)
 const nameEditorRef = shallowRef<Editor | null>(null)
+const { usedVariableIds, totalCount: variableCount } =
+	useVariableUsage(contentEditorRef)
 const editorStore = useEditorStore()
 const mainArea = useTemplateRef("main")
 const { width: mainAreaWidth } = useElementSize(mainArea)
 watchImmediate(mainAreaWidth, editorStore.updateMainAreaWidth)
 const pageReady = usePageReady()
+// the document the url names, read from the url alone. The tree may
+// no longer hold it.
+const urlDocId = computed(() => {
+	const slug = pageRoute.params.documentSlug
+	if (typeof slug !== "string") {
+		return null
+	}
+
+	return extractDocInfoFromSlug(slug)?.id ?? null
+})
 const activeDocMetadata = computed(() => {
-	const docInfo = extractDocInfoFromSlug(
-		pageRoute.params.documentSlug as string,
-	)
-	if (!docInfo) {
+	if (!urlDocId.value) {
 		return null
 	}
 
 	const elem = extractDocumentTreeElement(
 		fetchDocumentTree.data.value ?? [],
-		docInfo.id,
+		urlDocId.value,
 	)
 	if (!elem) {
 		return null
@@ -217,13 +230,13 @@ onUnmounted(() => {
 })
 
 watch(fetchDocumentTree.state, (newV) => {
-	if (!activeDocMetadata.value?.id) {
+	if (!urlDocId.value) {
 		return
 	}
 
 	// handle the case where the current document got deleted or the user lost
 	// access to it, by redirecting to the first available document
-	if (!isIdInDocumentTree(newV.data ?? [], activeDocMetadata.value.id)) {
+	if (!isIdInDocumentTree(newV.data ?? [], urlDocId.value)) {
 		void redirectToFirst(null, fetchOrganization, fetchDocumentTree, null)
 	}
 })
@@ -235,6 +248,7 @@ watchImmediate(
 		pageReady.value = false
 
 		if (import.meta.dev) {
+			// NOCOV: dev-only load timing; tests run a production build.
 			startLoadProgress()
 		}
 	},
@@ -271,6 +285,7 @@ watchImmediate(
 )
 
 if (import.meta.dev) {
+	// NOCOV: dev-only load timing; tests run a production build.
 	watchOnce(
 		() => loadedSections.value.sidebar,
 		() => {
@@ -406,6 +421,7 @@ watch(
 	{ flush: "sync" },
 )
 
+// NOCOV: the server-side render skips this; tests run the client bundle.
 if (import.meta.client) {
 	watchImmediate(
 		() => activeDocMetadata.value?.id,
@@ -473,8 +489,38 @@ if (import.meta.client) {
 	)
 }
 
+// the inbox and the variables panel share one place, so opening one
+// closes the other. The variables panel stays open while it is in edit
+// mode, and the inbox waits until it leaves it.
 function toggleNotificationSidebar() {
+	if (!notificationSidebarOpen.value && variableEditing.value) {
+		showToastMessage(
+			"warning",
+			t("variable.editing-toast.title"),
+			t("variable.editing-toast.description"),
+		)
+		return
+	}
+
 	notificationSidebarOpen.value = !notificationSidebarOpen.value
+	if (notificationSidebarOpen.value) {
+		variableSidebarOpen.value = false
+	}
+}
+
+function toggleVariableSidebar() {
+	setVariableSidebarOpen(!variableSidebarOpen.value)
+}
+
+function setVariableSidebarOpen(open: boolean) {
+	if (!open && variableEditing.value) {
+		return
+	}
+
+	variableSidebarOpen.value = open
+	if (open) {
+		notificationSidebarOpen.value = false
+	}
 }
 
 // the query of this page's url with ?branch= naming the active branch.
@@ -516,6 +562,7 @@ function syncBranchQuery(dropLinkedBlock = false) {
 
 function applyDocumentNameChange(name: string) {
 	if (!activeDocMetadata.value) {
+		// NOCOV: the container that sends this renders only with a document.
 		return
 	}
 
@@ -561,6 +608,7 @@ function refreshOrganizationRouteSlug() {
 
 function applyIconChange(icon: string) {
 	if (!activeDocMetadata.value) {
+		// NOCOV: the container that sends this renders only with a document.
 		return
 	}
 
@@ -687,6 +735,7 @@ function updateDocumentTreeBranchProtected(
 	protectedMode: boolean,
 ) {
 	if (!activeDocMetadata.value) {
+		// NOCOV: the page listens for changes only while a document is open.
 		return
 	}
 
@@ -733,26 +782,58 @@ function clearLinkedBlock() {
 }
 </script>
 <template>
-	<ShadcnUiSidebarProvider>
+	<ShadcnUiSidebarProvider v-model:open="sidebarOpen">
 		<ShadcnUiTooltipProvider>
 			<AppSidebar
 				:all-initial-sections-loaded="allSectionsLoaded"
 				:notification-sidebar-open="notificationSidebarOpen"
+				:variable-sidebar-open="variableSidebarOpen"
+				:variable-editing="variableEditing"
+				:variable-usage="{
+					usedOnCurrentPage: usedVariableIds.size,
+					total: variableCount,
+				}"
 				@create-document="handleDocumentCreation"
 				@duplicate-document="handleDocumentDuplication"
 				@delete-document="handleDocumentDeletion"
 				@delete-tag="handleTagDeletion"
 				@open-settings="(target) => (settingModalOpen = target)"
+				@toggle-search="searchModalOpen = !searchModalOpen"
 				@toggle-settings="settingModalOpen = !settingModalOpen"
 				@toggle-shortcuts="shortcutsModalOpen = !shortcutsModalOpen"
 				@toggle-notifications="toggleNotificationSidebar"
+				@toggle-variables="toggleVariableSidebar"
 				@initial-load-complete="loadedSections.sidebar = true"
 			/>
-			<NotificationSidebar v-model="notificationSidebarOpen" />
+			<ExtraContextSidebar
+				v-model="notificationSidebarOpen"
+				:title="t('sidebar.notification-sheet.title')"
+				:description="t('sidebar.notification-sheet.description')"
+			>
+				<template #default="{ close }">
+					<NotificationBox @close-notification-box="close" />
+				</template>
+			</ExtraContextSidebar>
+			<ExtraContextSidebar
+				:model-value="variableSidebarOpen"
+				:title="t('variable.title')"
+				:description="t('variable.sheet-description')"
+				@update:model-value="setVariableSidebarOpen"
+			>
+				<template #default="{ close }">
+					<VariablesPanel
+						v-model:editing="variableEditing"
+						class="h-full"
+						:used-variable-ids="usedVariableIds"
+						@close-variable-panel="close"
+					/>
+				</template>
+			</ExtraContextSidebar>
 			<SettingsBaseModal
 				v-model="settingModalOpen"
 				@refresh-organization-slug="refreshOrganizationRouteSlug"
 			/>
+			<SearchModal v-model="searchModalOpen" />
 			<ShortcutModal v-model="shortcutsModalOpen" />
 			<EditorBlocksMetricsConfigModalBaseModal
 				@open-settings="() => (settingModalOpen = 'metric-data-sources')"
@@ -792,6 +873,8 @@ function clearLinkedBlock() {
 									:all-initial-sections-loaded="allSectionsLoaded"
 									:timestamps="timestamps"
 									@click="clearLinkedBlock"
+									@dragstart="clearLinkedBlock"
+									@keydown="clearLinkedBlock"
 									@updated-live-name="applyDocumentNameChange"
 									@updated-live-icon="applyIconChange"
 									@branch-merged="handleBranchMerge"

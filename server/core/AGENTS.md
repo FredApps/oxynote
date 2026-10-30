@@ -23,7 +23,6 @@ make lint           # golangci-lint run --fix;  check-lint = verify only
   (`redkit`) or a bare role when nesting disambiguates. Files snake_case.
 - Generated mocks: in-package `0mock_<name>_test.go` (sorts first) and
   exported `_mock/` sibling packages (`package mock`).
-- Every package has `// Package x <verb phrase>.` on its primary file.
 
 ## Style
 
@@ -41,9 +40,8 @@ agent-instruction files.
 doc-commented (`var` for values tests shorten). Exported globals: `Err*`
 sentinels and consts another package reads. `init()` is banned except for
 build-info parsing.
-Compile-time interface assertions (`var _ Iface = &Impl{}`) only when a
-human asks: interfaces are consumer-declared, so the assertion imports the
-consumer and risks a cycle.
+No compile-time interface assertions unless a human asks: they import
+the consumer and risk a cycle.
 
 **Naming.** Receivers are 1–3 letters from the type's initials, consistent
 per type. Shorts: `cfg`, `opts`, `inp`, `supv`, `res`, `evt`; secondary
@@ -133,15 +131,15 @@ both**; a swallowed error is logged with a comment saying why.
 - Periodic work: `timeutil.NewPeriodicExec` or `timeutil.NewCron`, never
   hand-rolled tickers. Shutdown via a once-closed `chan struct{}` exposed as
   `ShutDownCh()`. Sleeps `select` on `ctx.Done()`, never bare `time.Sleep`.
-- Retries: `cenkalti/backoff` with context and max count. Bounded parallel
+- Retries: `cenkalti/backoff` with context and max count; an
+  `internal/job` job requeues itself with a delay instead. Bounded parallel
   work: `errgroup`/`multierror.Group` plus a mutex for shared writes.
 
 ## Time, IDs, numbers, enums, validation
 
 - `timeutil.Now()`, never `time.Now()` in production code. Durations are
-  `_`-prefixed documented package vars.
-- IDs are `rs/xid`. Exact numerics are `shopspring/decimal`; non-trivial
-  decimal math lives in `pkg/mathutil`, never inline.
+  `_`-prefixed documented consts, `var` only when a test shortens one.
+- IDs are `rs/xid`. Exact numerics are `shopspring/decimal`.
 - Nullable columns use `guregu/null/v5`, never empty-string sentinels.
 - Typed string enums: the `const` block precedes the type, values
   kebab-case, each variant documented (or one `// All available X
@@ -152,11 +150,10 @@ both**; a swallowed error is logged with a comment saying why.
   exactly like `internal/notification/notification.go`.
 - User-input domain types implement `ValidateWithContext(ctx) error` with
   `jellydator/validation` (value receiver, one `ValidateStructWithContext`
-  call, fields in declaration order, embedded configs first; decimal bounds
-  via `.CmpFunc(mathutil.CmpDecimal)`). Options structs use hand-rolled
-  `validate()` with `errors.New`. Aggregate mutations go through `Set*`
-  methods returning `(changed bool, err error)`, orchestrated by
-  `ApplyInput(inp)`.
+  call, fields in declaration order, embedded configs first). Options
+  structs use hand-rolled `validate()` with `errors.New`. Aggregate
+  mutations go through `Set*` methods returning `(changed bool, err
+  error)`, orchestrated by `ApplyInput(inp)`.
 
 ## Database — the agent pattern
 
@@ -226,8 +223,8 @@ histograms carry a unit suffix, `Help` is a sentence ending with a period.
 ## Testing
 
 White-box, same package, every success and failure path, every dependency
-mocked with moq. Only `internal/db` and `internal/datasource/processor`
-touch real databases.
+mocked with moq. Only `internal/db`, `internal/datasource/processor`
+and `internal/job` touch real databases.
 
 **Naming & layout.** One test function per production function, never
 merged or split; test files pair 1:1 (`expand.go` → `expand_test.go`).
@@ -235,7 +232,9 @@ merged or split; test files pair 1:1 (`expand.go` → `expand_test.go`).
 casing (`Test_agent_CreateNotification`); only `TestMain` lacks the
 underscore. Every package has `func TestMain(m *testing.M) {
 goleak.VerifyTestMain(m) }`, with `IgnoreCurrent`/`IgnoreTopFunction` only
-for known third-party leaks. Serialization types get `Test_X_UnmarshalJSON`,
+for known third-party leaks. One that stops containers in a `defer` runs
+`m.Run` and `goleak.Find` and returns, as `VerifyTestMain`'s `os.Exit` skips
+defers. Serialization types get `Test_X_UnmarshalJSON`,
 `Test_X_MarshalJSON` (`assert.JSONEq`), `Test_X_Value`, `Test_X_Scan`.
 
 **Table tests** are the default for anything with more than one path: a
@@ -317,5 +316,4 @@ Logging is asserted, not mocked: `slog.NewTextHandler` over a `bytes.Buffer`
 (`testutil.NewBuffer()` for concurrent paths); `slog.DiscardHandler` where
 logs don't matter. Use `context.Background()`, not `t.Context()`.
 
-**Hygiene.** Golden files in `testdata/`. Package-level fixtures are
-`_`-prefixed. `t.Helper()` in named helpers.
+**Hygiene.** Golden files in `testdata/`. `t.Helper()` in named helpers.

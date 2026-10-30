@@ -1,3 +1,4 @@
+import { enableAutoUnmount } from "@vue/test-utils"
 import { afterEach, beforeEach, describe, it, vi } from "vitest"
 import { toast } from "vue-sonner"
 import {
@@ -13,10 +14,13 @@ import {
 	findButtonByText,
 	menuItem,
 	mountUnderSidebarProvider,
+	seedAuthOrganization,
 	seedCapabilities,
 	seedPersistentState,
 	settleMutations,
 	t,
+	teleportedButton,
+	WAIT_FOR_OPTIONS,
 } from "./test-helpers"
 
 vi.mock("vue-sonner", () => ({
@@ -41,6 +45,9 @@ const BREADCRUMBS = [
 // success; without endpoints behind them the refetch rejects and takes the
 // mutation down with it
 let branches: unknown[] = []
+
+// the timestamp tooltip lists who viewed the branch once it opens
+let views: unknown[] = []
 
 function seedBranches(list: unknown[]) {
 	branches = list
@@ -87,11 +94,21 @@ function menuItemTexts() {
 // app-wide singletons every mount in the file shares, and the menus are
 // teleported into the shared <body>
 describe("<DocumentHeader>", { concurrent: false }, () => {
+	// the reviewability modal stays mounted and patches its teleported
+	// dialog after the test
+	enableAutoUnmount(afterEach)
+
 	beforeEach(() => {
 		clearQueryCache()
 		vi.mocked(toast.custom).mockReset()
 		mockEndpoint("GET", `/api/documents/${DOC_ID}/branches`, () => branches)
 		mockEndpoint("GET", "/api/documents/tree", () => [])
+		views = []
+		mockEndpoint(
+			"GET",
+			`/api/documents/${DOC_ID}/branches/${MAIN_BRANCH}/views`,
+			() => views,
+		)
 
 		const editorStore = useEditorStore()
 		editorStore.activeDocumentId = DOC_ID
@@ -177,6 +194,43 @@ describe("<DocumentHeader>", { concurrent: false }, () => {
 			edited?.attributes("aria-describedby") ?? "",
 		)
 		expect(tooltip?.textContent).toContain(t("general.deleted-user"))
+	})
+
+	it("lists who viewed the branch under the timestamp", async ({ expect }) => {
+		vi.useFakeTimers()
+		mainOnly()
+		views = [{ userId: "ada", viewedAt: "2026-03-15T12:00:00Z" }]
+		seedAuthOrganization({
+			members: [{ userId: "ada", user: { name: "Ada" } }],
+		})
+		const wrapper = await mountHeader({
+			timestamps: {
+				[MAIN_BRANCH]: {
+					updated: { at: "2026-03-14T12:00:00Z", user: { name: "Ada" } },
+					created: { at: "2026-03-01T12:00:00Z", user: { name: "Ada" } },
+				},
+			},
+		})
+		const edited = wrapper
+			.findAll("[data-slot='tooltip-trigger']")
+			.find((trigger) => trigger.text().includes("Edited"))
+
+		await edited?.trigger("pointermove")
+		await vi.advanceTimersByTimeAsync(1000)
+
+		// the described-by node is a copy reka-ui takes when the tooltip
+		// opens, before the viewers arrive. The visible body around it is
+		// what updates
+		const tooltip = document
+			.getElementById(edited?.attributes("aria-describedby") ?? "")
+			?.closest("[data-slot='tooltip-content']")
+		// the viewers arrive through a request the tooltip gives no signal for
+		await vi.waitFor(() => {
+			expect(tooltip?.textContent).toContain("Mar 15")
+		}, WAIT_FOR_OPTIONS)
+		expect(tooltip?.textContent).toContain(
+			t("editor.navbar.timestamp.viewed-by"),
+		)
 	})
 
 	it("omits the timestamp when the branch has none", async ({ expect }) => {
@@ -440,7 +494,44 @@ describe("<DocumentHeader>", { concurrent: false }, () => {
 		expect(updated[0]?.body).toEqual({ protected: true })
 	})
 
-	it("closes the review workflow by dropping every draft and unprotecting main", async ({
+	it("asks for confirmation before dropping every draft and unprotecting main", async ({
+		expect,
+	}) => {
+		vi.useFakeTimers()
+		mainAndDraft()
+		const deleted = mockEndpoint(
+			"DELETE",
+			`http://test.local/auth-realtime/api/documents/${DOC_ID}/branches/${DRAFT_BRANCH}`,
+			() => ({}),
+		)
+		const updated = mockEndpoint(
+			"PUT",
+			`http://test.local/auth-realtime/api/documents/${DOC_ID}/branches/${MAIN_BRANCH}`,
+			() => ({}),
+		)
+		const wrapper = await mountHeader()
+		await openOptionsMenu(wrapper)
+
+		menuItem(
+			t("editor.navbar.document-options.review-workflow.disable-title"),
+		).click()
+		await nextTick()
+
+		expect(deleted).toHaveLength(0)
+
+		teleportedButton(
+			t(
+				"editor.navbar.document-options.review-workflow.disable-confirm-modal.confirm-button",
+			),
+		).click()
+		await vi.advanceTimersByTimeAsync(300)
+		await settleMutations()
+
+		expect(deleted).toHaveLength(1)
+		expect(updated[0]?.body).toEqual({ protected: false })
+	})
+
+	it("leaves every branch alone when the confirmation is cancelled", async ({
 		expect,
 	}) => {
 		mainAndDraft()
@@ -460,10 +551,17 @@ describe("<DocumentHeader>", { concurrent: false }, () => {
 		menuItem(
 			t("editor.navbar.document-options.review-workflow.disable-title"),
 		).click()
-		await settleMutations()
+		await nextTick()
 
-		expect(deleted).toHaveLength(1)
-		expect(updated[0]?.body).toEqual({ protected: false })
+		teleportedButton(
+			t(
+				"editor.navbar.document-options.review-workflow.disable-confirm-modal.cancel-button",
+			),
+		).click()
+		await nextTick()
+
+		expect.soft(deleted).toHaveLength(0)
+		expect.soft(updated).toHaveLength(0)
 	})
 
 	it("warns when the reviewability change fails", async ({ expect }) => {

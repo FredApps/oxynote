@@ -13,7 +13,6 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/document/hook"
 	"github.com/oxynote/oxynote/server/core/internal/document/hook/processor"
 	"github.com/rs/xid"
-	"github.com/shopspring/decimal"
 )
 
 // hookSettingsSchema builds the settings argument's schema for the hook
@@ -111,7 +110,6 @@ func decodeHookSettings(raw json.RawMessage) (hook.Type, processor.Settings, err
 		}
 
 		// a concrete date is what the editor calls a custom duration.
-		sr.Scale = processor.ScaleTypeLinear
 		sr.Duration = null.StringFrom("custom")
 		v = sr
 	case hook.TypeGithubTracking:
@@ -200,7 +198,8 @@ type listHooks struct{}
 func (listHooks) Info() Info {
 	return Info{
 		Name:        NameListHooks,
-		Description: "List the freshness hooks on one branch of a document as [{id, type, block_uid, settings, score, state, status, created_at, updated_at}]. A hook watches something outside the document and lowers its score from 100 as that thing changes or a date approaches. block_uid is the block it is anchored to, or null for the whole document.",
+		Traits:      Traits{Group: GroupHooks},
+		Description: "List the freshness hooks on one branch of a document as [{id, type, block_uid, settings, triggered, state, status, created_at, updated_at}]. A hook watches something outside the document and triggers when that thing changes or a date passes. block_uid is the block it is anchored to, or null for the whole document.",
 		Properties: map[string]any{
 			"document_id": map[string]any{"type": "string", "description": _documentIDDescription},
 			"branch_id":   map[string]any{"type": "string", "description": _branchIDDescription},
@@ -252,15 +251,17 @@ type hookRow struct {
 	// Settings is the hook's configuration, in its type's own shape.
 	Settings json.RawMessage `json:"settings"`
 
-	// Score is the hook's freshness score, from 100 down to 0.
-	Score decimal.Decimal `json:"score"`
+	// Triggered indicates that what the hook watches changed or came due
+	// since its last reset.
+	Triggered bool `json:"triggered"`
 
 	// State is what the hook has recorded so far, in its type's own
 	// shape, or null for a hook not set up yet.
 	State json.RawMessage `json:"state"`
 
 	// Status tells whether the hook could check its target on its last
-	// run. Score and state are left as they were while it is not active.
+	// run. The triggered flag and state are left as they were while it is
+	// not active.
 	Status processor.Status `json:"status"`
 
 	// CreatedAt is when the hook was created.
@@ -277,7 +278,7 @@ func newHookRow(hk *hook.Hook) hookRow {
 		Type:      hk.Type,
 		BlockUID:  hk.BlockID,
 		Settings:  json.RawMessage(hk.Settings),
-		Score:     hk.Score,
+		Triggered: hk.Triggered,
 		State:     json.RawMessage(hk.State.V),
 		Status:    hk.Status,
 		CreatedAt: hk.CreatedAt,
@@ -317,11 +318,11 @@ type createHook struct{}
 func (createHook) Info() Info {
 	return Info{
 		Name:        NameCreateHook,
-		Traits:      Traits{Write: true},
-		Description: "Add a freshness hook to one branch of a document and return it as list_hooks would. github-tracking and url-watcher need the deployment's GitHub App and changedetection.io integrations, and are refused without them. A new hook starts at score 100.",
+		Traits:      Traits{Group: GroupHooks, Write: true},
+		Description: "Add a freshness hook, such as a review reminder, to one branch of a document and return it as list_hooks would. github-tracking and url-watcher need the deployment's GitHub App and changedetection.io integrations, and are refused without them. A new hook starts untriggered.",
 		Properties: map[string]any{
 			"document_id": map[string]any{"type": "string", "description": _documentIDDescription},
-			"branch_id":   map[string]any{"type": "string", "description": _branchIDDescription},
+			"branch_id":   map[string]any{"type": "string", "description": _writeBranchIDDescription},
 			"block_uid":   map[string]any{"type": "string", "description": "Optional. The id of a block on the branch to anchor the hook to; omit it for the whole document."},
 			"settings":    hookSettingsSchema(),
 		},
@@ -429,16 +430,16 @@ func (a updateHookArgs) settingsFor(hk *hook.Hook) (processor.Settings, error) {
 	return settings, nil
 }
 
-// updateHook resets a hook's score and state, replacing its settings
-// when new ones are given.
+// updateHook resets a hook's triggered flag and state, replacing its
+// settings when new ones are given.
 type updateHook struct{}
 
 // Info returns the tool's model-facing description.
 func (updateHook) Info() Info {
 	return Info{
 		Name:        NameUpdateHook,
-		Traits:      Traits{Write: true},
-		Description: "Reset a hook's score to 100 and its state to a fresh hook's, and return it as list_hooks would. Without settings the hook keeps them: use that once the document is brought up to date with what the hook flagged. With settings they replace the old ones; the hook keeps its type, so to change it delete the hook and create another.",
+		Traits:      Traits{Group: GroupHooks, Write: true, Overwrites: true},
+		Description: "Reset a hook's state to a fresh hook's and return it as list_hooks would. It is then untriggered, except a reminder already past its schedule, which stays triggered until settings give it a later one. Without settings the hook keeps them: use that once the document is brought up to date with what the hook flagged. With settings they replace the old ones; the hook keeps its type, so to change it delete the hook and create another.",
 		Properties: map[string]any{
 			"document_id": map[string]any{"type": "string", "description": _documentIDDescription},
 			"hook_id":     map[string]any{"type": "string", "description": _hookIDDescription},
@@ -544,8 +545,8 @@ type deleteHook struct{}
 func (deleteHook) Info() Info {
 	return Info{
 		Name:        NameDeleteHook,
-		Traits:      Traits{Write: true, Destructive: true},
-		Description: "Delete a hook, tearing down whatever it watches outside the document. It cannot be restored; update_hook without settings clears what it flagged instead. Returns {hook_id, deleted}.",
+		Traits:      Traits{Group: GroupHooks, Write: true, Destructive: true},
+		Description: "Delete a hook, tearing down whatever it watches outside the document. A protected branch keeps its hooks. It cannot be restored; update_hook without settings clears what it flagged instead. Returns {hook_id, deleted}.",
 		Properties: map[string]any{
 			"document_id": map[string]any{"type": "string", "description": _documentIDDescription},
 			"hook_id":     map[string]any{"type": "string", "description": _hookIDDescription},

@@ -12,10 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guregu/null/v5"
 	datasourceCore "github.com/oxynote/oxynote/server/core/internal/datasource"
 	datasourceMock "github.com/oxynote/oxynote/server/core/internal/datasource/_mock"
 	"github.com/oxynote/oxynote/server/core/internal/datasource/processor"
 	"github.com/oxynote/oxynote/server/core/internal/server/internal/auth"
+	"github.com/oxynote/oxynote/server/core/internal/variable"
+	"github.com/oxynote/oxynote/server/core/pkg/metricutil"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
@@ -39,7 +42,7 @@ func TestMain(m *testing.M) {
 }
 
 // check inspects the collaborators' state after a handler call.
-type check func(t *testing.T, db *DBMock, exec *runnerMock, rec *httptest.ResponseRecorder, logs *bytes.Buffer)
+type check func(t *testing.T, db *DBMock, exec *runnerMock, vars *VariableManagerMock, rec *httptest.ResponseRecorder, logs *bytes.Buffer)
 
 // checks combines the provided checks into a slice.
 func checks(cc ...check) []check { return cc }
@@ -47,22 +50,15 @@ func checks(cc ...check) []check { return cc }
 // hasResp returns a check asserting the response code and JSON body; an
 // empty body asserts an empty response.
 func hasResp(code int, body string) check {
-	return func(t *testing.T, _ *DBMock, _ *runnerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
-		assert.Equal(t, code, rec.Code)
-
-		if body == "" {
-			assert.Zero(t, rec.Body.Len(), rec.Body.String())
-			return
-		}
-
-		assert.JSONEq(t, body, rec.Body.String())
+	return func(t *testing.T, _ *DBMock, _ *runnerMock, _ *VariableManagerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		testutil.AssertResponse(t, rec, code, body)
 	}
 }
 
 // hasJSONResp returns a check asserting that the response matches the
 // JSON representation of the provided value.
 func hasJSONResp(code int, v any) check {
-	return func(t *testing.T, _ *DBMock, _ *runnerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, _ *DBMock, _ *runnerMock, _ *VariableManagerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		assert.Equal(t, code, rec.Code)
 
 		exp, err := json.Marshal(v)
@@ -74,7 +70,7 @@ func hasJSONResp(code int, v any) check {
 // hasUpdateFailedLog returns a check asserting that the handler logged
 // the data source status update failure.
 func hasUpdateFailedLog() check {
-	return func(t *testing.T, _ *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, logs *bytes.Buffer) {
+	return func(t *testing.T, _ *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, logs *bytes.Buffer) {
 		assert.Contains(t, logs.String(), "cannot update data source status")
 	}
 }
@@ -82,7 +78,7 @@ func hasUpdateFailedLog() check {
 // wasDBFetchDataSourceCalled returns a check asserting the number of
 // FetchDataSource calls and their parameters.
 func wasDBFetchDataSourceCalled(count int) check {
-	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		ff := db.FetchDataSourceCalls()
 		require.Len(t, ff, count)
 
@@ -99,7 +95,7 @@ func wasDBFetchDataSourceCalled(count int) check {
 // wasDBInsertDataSourceCalled returns a check asserting the number of
 // InsertDataSource calls.
 func wasDBInsertDataSourceCalled(count int) check {
-	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		require.Len(t, db.InsertDataSourceCalls(), count)
 	}
 }
@@ -107,7 +103,7 @@ func wasDBInsertDataSourceCalled(count int) check {
 // wasDBUpdateDataSourceCalled returns a check asserting the number of
 // UpdateDataSource calls.
 func wasDBUpdateDataSourceCalled(count int) check {
-	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		require.Len(t, db.UpdateDataSourceCalls(), count)
 	}
 }
@@ -115,7 +111,7 @@ func wasDBUpdateDataSourceCalled(count int) check {
 // wasDBDeleteDataSourceCalled returns a check asserting the number of
 // DeleteDataSource calls and their parameters.
 func wasDBDeleteDataSourceCalled(count int) check {
-	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		ff := db.DeleteDataSourceCalls()
 		require.Len(t, ff, count)
 
@@ -128,11 +124,70 @@ func wasDBDeleteDataSourceCalled(count int) check {
 	}
 }
 
+// wasVariableManagerFetchTreeCalled returns a check asserting the number
+// of FetchTree calls and that each was for the session's organization and
+// user.
+func wasVariableManagerFetchTreeCalled(count int) check {
+	return func(t *testing.T, _ *DBMock, _ *runnerMock, vars *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		ff := vars.FetchTreeCalls()
+		require.Len(t, ff, count)
+
+		for _, f := range ff {
+			assert.Equal(t, _testSession.ActiveOrganizationID, f.OrganizationID)
+			assert.Equal(t, _testSession.UserID, f.UserID)
+		}
+	}
+}
+
 // wasExecutorTestConnectionCalled returns a check asserting the number of
 // TestConnection calls.
 func wasExecutorTestConnectionCalled(count int) check {
-	return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+	return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 		require.Len(t, exec.runner.TestConnectionCalls(), count)
+	}
+}
+
+// wasRunnersRunnerCalled returns a check asserting the number of Runner
+// calls.
+func wasRunnersRunnerCalled(count int) check {
+	return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		require.Len(t, exec.dataSources, count)
+	}
+}
+
+// wasRunnersEvictCalled returns a check asserting the number of
+// Runners.Evict calls, each for the test data source.
+func wasRunnersEvictCalled(count int) check {
+	return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		require.Len(t, exec.evicted, count)
+
+		for _, id := range exec.evicted {
+			assert.Equal(t, _testID, id)
+		}
+	}
+}
+
+// wasExecutorPrometheusCalled returns a check asserting the number of
+// Runner.Prometheus calls.
+func wasExecutorPrometheusCalled(count int) check {
+	return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		require.Len(t, exec.runner.PrometheusCalls(), count)
+	}
+}
+
+// wasExecutorSQLCalled returns a check asserting the number of Runner.SQL
+// calls.
+func wasExecutorSQLCalled(count int) check {
+	return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		require.Len(t, exec.runner.SQLCalls(), count)
+	}
+}
+
+// wasExecutorLogsCalled returns a check asserting the number of
+// Runner.Logs calls.
+func wasExecutorLogsCalled(count int) check {
+	return func(t *testing.T, _ *DBMock, exec *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		require.Len(t, exec.runner.LogsCalls(), count)
 	}
 }
 
@@ -189,12 +244,14 @@ func prepRequest(method, target, body string, session bool, id string) *http.Req
 // refusal that stands in for a data source that cannot serve any of
 // them.
 type clientMocks struct {
-	// prometheus, sql, postgreSQL and mySQL are the clients the
-	// accessors return. A check reads back what the handler asked them.
+	// prometheus, sql, postgreSQL, mySQL and logSource are the clients
+	// the accessors return. A check reads back what the handler asked
+	// them.
 	prometheus *datasourceMock.Prometheus
 	sql        *datasourceMock.SQL
 	postgreSQL *datasourceMock.PostgreSQL
 	mySQL      *datasourceMock.MySQL
+	logSource  *datasourceMock.Logs
 
 	// status and statusErr are what TestConnection reports.
 	status    processor.ConnectionStatus
@@ -220,10 +277,54 @@ type runnerMock struct {
 	// dataSources are the data sources a runner was asked for, in call
 	// order.
 	dataSources []datasourceCore.DataSource
+
+	// evicted are the data source ids whose connections the handler had
+	// closed, in call order.
+	evicted []xid.ID
 }
 
-// newRunnerMock wires one runner over the given clients.
-func newRunnerMock(clients *clientMocks) *runnerMock {
+// Runner records the data source and hands back the one runner.
+func (m *runnerMock) Runner(ds datasourceCore.DataSource) datasourceCore.Runner {
+	m.dataSources = append(m.dataSources, ds)
+
+	return m.runner
+}
+
+// Evict records the data source id.
+func (m *runnerMock) Evict(id xid.ID) {
+	m.evicted = append(m.evicted, id)
+}
+
+// stubVariables returns a variable manager whose tree resolves $metric to
+// up, but only for the test session's organization and user.
+func stubVariables(err error) *VariableManagerMock {
+	return &VariableManagerMock{
+		FetchTreeFunc: func(_ context.Context, organizationID, userID string) (variable.Tree, error) {
+			if err != nil {
+				return nil, err
+			}
+
+			if organizationID != _testSession.ActiveOrganizationID || userID != _testSession.UserID {
+				return variable.Tree{}, nil
+			}
+
+			return variable.Tree{{Variables: []variable.Entry{{
+				Key:   "metric",
+				Type:  variable.TypeText,
+				Value: null.StringFrom("up"),
+			}}}}, nil
+		},
+	}
+}
+
+// prepHandler builds a handler around the provided mocks, wiring one
+// runner over the clients and defaulting nil mocks to empty stubs, and
+// returns the buffer its log writes to.
+func prepHandler(db *DBMock, clients *clientMocks, vars *VariableManagerMock) (*Handler, *DBMock, *runnerMock, *VariableManagerMock, *bytes.Buffer) {
+	if db == nil {
+		db = &DBMock{}
+	}
+
 	if clients == nil {
 		clients = &clientMocks{}
 	}
@@ -244,11 +345,19 @@ func newRunnerMock(clients *clientMocks) *runnerMock {
 		clients.mySQL = &datasourceMock.MySQL{}
 	}
 
-	m := &runnerMock{clientMocks: clients}
+	if clients.logSource == nil {
+		clients.logSource = &datasourceMock.Logs{}
+	}
 
-	m.runner = &datasourceMock.Runner{
+	if vars == nil {
+		vars = &VariableManagerMock{}
+	}
+
+	exec := &runnerMock{clientMocks: clients}
+
+	exec.runner = &datasourceMock.Runner{
 		TypeFunc: func() datasourceCore.Type {
-			return m.dataSources[len(m.dataSources)-1].Type
+			return exec.dataSources[len(exec.dataSources)-1].Type
 		},
 		TestConnectionFunc: func(context.Context) (processor.ConnectionStatus, error) {
 			return clients.status, clients.statusErr
@@ -281,35 +390,25 @@ func newRunnerMock(clients *clientMocks) *runnerMock {
 
 			return clients.mySQL, nil
 		},
+		LogsFunc: func(context.Context) (datasourceCore.Logs, error) {
+			if clients.err != nil {
+				return nil, clients.err
+			}
+
+			return clients.logSource, nil
+		},
 	}
 
-	return m
-}
-
-// Runner records the data source and hands back the one runner.
-func (m *runnerMock) Runner(ds datasourceCore.DataSource) datasourceCore.Runner {
-	m.dataSources = append(m.dataSources, ds)
-
-	return m.runner
-}
-
-// prepHandler builds a handler around the provided mocks, defaulting nil
-// mocks to empty stubs, and returns the buffer its log writes to.
-func prepHandler(db *DBMock, clients *clientMocks) (*Handler, *DBMock, *runnerMock, *bytes.Buffer) {
-	if db == nil {
-		db = &DBMock{}
-	}
-
-	runner := newRunnerMock(clients)
 	logs := &bytes.Buffer{}
 
 	hdl := &Handler{
-		log:     slog.New(slog.NewTextHandler(logs, nil)),
-		db:      db,
-		runners: runner,
+		log:       slog.New(slog.NewTextHandler(logs, nil)),
+		db:        db,
+		runners:   exec,
+		variables: vars,
 	}
 
-	return hdl, db, runner, logs
+	return hdl, db, exec, vars, logs
 }
 
 func Test_NewHandler(t *testing.T) {
@@ -318,42 +417,19 @@ func Test_NewHandler(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
 	db := &DBMock{}
 
-	runners := datasourceCore.NewManager(log, &datasourceMock.StatusStore{})
+	runners := datasourceCore.NewManager(log, &datasourceMock.StatusStore{}, nil, metricutil.NewFactory("test", nil))
 
-	hdl := NewHandler(log, db, runners)
+	variables := &VariableManagerMock{}
+
+	hdl := NewHandler(log, db, runners, variables)
 	require.NotNil(t, hdl)
 	assert.Equal(t, log, hdl.log)
 	assert.Same(t, db, hdl.db)
 	assert.Same(t, runners, hdl.runners)
+	assert.Same(t, variables, hdl.variables)
 }
 
 func Test_Handler_CreateDataSource(t *testing.T) {
-	hasCreatedDataSourceResp := func() check {
-		return func(t *testing.T, db *DBMock, exec *runnerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
-			ff := db.InsertDataSourceCalls()
-			require.Len(t, ff, 1)
-
-			ds := ff[0].Ds
-			require.NotNil(t, ds)
-			assert.False(t, ds.ID.IsNil())
-			assert.Equal(t, _testSession.ActiveOrganizationID, ds.OrganizationID)
-			assert.Equal(t, "test-source", ds.Name)
-			assert.Equal(t, datasourceCore.TypePrometheus, ds.Type)
-			assert.Equal(t, "http://source.test", ds.URL)
-			assert.Equal(t, processor.ConnectionStatusSuccess, ds.Status)
-
-			require.Len(t, exec.runner.TestConnectionCalls(), 1)
-			require.Len(t, exec.dataSources, 1)
-			assert.Equal(t, ds.Name, exec.dataSources[0].Name)
-
-			assert.Equal(t, http.StatusCreated, rec.Code)
-
-			exp, err := json.Marshal(ds)
-			require.NoError(t, err)
-			assert.JSONEq(t, string(exp), rec.Body.String())
-		}
-	}
-
 	body := `{"type":"prometheus","name":"test-source","url":"http://source.test","credentials":{"username":"user"}}`
 
 	cc := map[string]struct {
@@ -368,6 +444,7 @@ func Test_Handler_CreateDataSource(t *testing.T) {
 			OmitSession: true,
 			Checks: checks(
 				hasResp(http.StatusUnauthorized, `{"code":"account.not_authenticated","message":"not authenticated"}`),
+				wasRunnersRunnerCalled(0),
 				wasExecutorTestConnectionCalled(0),
 				wasDBInsertDataSourceCalled(0),
 			),
@@ -376,15 +453,18 @@ func Test_Handler_CreateDataSource(t *testing.T) {
 			Body: "{",
 			Checks: checks(
 				hasResp(http.StatusBadRequest, `{"code":"request.invalid_json","message":"invalid JSON body"}`),
+				wasRunnersRunnerCalled(0),
 				wasExecutorTestConnectionCalled(0),
 				wasDBInsertDataSourceCalled(0),
 			),
 		},
-		"Error returned by executor.TestConnection": {
+		"Error returned by Runner.TestConnection": {
 			Clients: &clientMocks{status: "", statusErr: assert.AnError},
 			Body:    body,
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
 				wasDBInsertDataSourceCalled(0),
 			),
 		},
@@ -393,6 +473,7 @@ func Test_Handler_CreateDataSource(t *testing.T) {
 			Body:    body,
 			Checks: checks(
 				hasResp(http.StatusUnauthorized, `{"code":"data_source.unauthorized","message":"Unauthorized access to the data source."}`),
+				wasRunnersRunnerCalled(1),
 				wasExecutorTestConnectionCalled(1),
 				wasDBInsertDataSourceCalled(0),
 			),
@@ -407,6 +488,8 @@ func Test_Handler_CreateDataSource(t *testing.T) {
 			Body:    body,
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
 				wasDBInsertDataSourceCalled(1),
 			),
 		},
@@ -414,7 +497,29 @@ func Test_Handler_CreateDataSource(t *testing.T) {
 			Clients: &clientMocks{status: processor.ConnectionStatusSuccess, statusErr: nil},
 			Body:    body,
 			Checks: checks(
-				hasCreatedDataSourceResp(),
+				func(t *testing.T, db *DBMock, exec *runnerMock, _ *VariableManagerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
+					ff := db.InsertDataSourceCalls()
+					require.Len(t, ff, 1)
+
+					ds := ff[0].Ds
+					require.NotNil(t, ds)
+					assert.False(t, ds.ID.IsNil())
+					assert.Equal(t, _testSession.ActiveOrganizationID, ds.OrganizationID)
+					assert.Equal(t, "test-source", ds.Name)
+					assert.Equal(t, datasourceCore.TypePrometheus, ds.Type)
+					assert.Equal(t, "http://source.test", ds.URL)
+					assert.Equal(t, processor.ConnectionStatusSuccess, ds.Status)
+
+					require.Len(t, exec.runner.TestConnectionCalls(), 1)
+					require.Len(t, exec.dataSources, 1)
+					assert.Equal(t, ds.Name, exec.dataSources[0].Name)
+
+					assert.Equal(t, http.StatusCreated, rec.Code)
+
+					exp, err := json.Marshal(ds)
+					require.NoError(t, err)
+					assert.JSONEq(t, string(exp), rec.Body.String())
+				},
 			),
 		},
 	}
@@ -423,7 +528,7 @@ func Test_Handler_CreateDataSource(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, nil)
 
 			req := prepRequest("POST", "http://test.com/", c.Body, !c.OmitSession, "")
 			rec := httptest.NewRecorder()
@@ -431,7 +536,7 @@ func Test_Handler_CreateDataSource(t *testing.T) {
 			hdl.CreateDataSource(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -487,7 +592,7 @@ func Test_Handler_FetchDataSource(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, nil)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, nil, nil)
 
 			req := prepRequest("GET", "http://test.com/", "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -495,7 +600,7 @@ func Test_Handler_FetchDataSource(t *testing.T) {
 			hdl.FetchDataSource(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -514,13 +619,19 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 			ID:          _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusUnauthorized, `{"code":"account.not_authenticated","message":"not authenticated"}`),
+				wasDBFetchDataSourceCalled(0),
+				wasRunnersRunnerCalled(0),
 				wasExecutorTestConnectionCalled(0),
+				wasDBUpdateDataSourceCalled(0),
 			),
 		},
 		"Missing data source id": {
 			Checks: checks(
 				hasResp(http.StatusNotFound, `{"code":"general","message":"not found"}`),
+				wasDBFetchDataSourceCalled(0),
+				wasRunnersRunnerCalled(0),
 				wasExecutorTestConnectionCalled(0),
+				wasDBUpdateDataSourceCalled(0),
 			),
 		},
 		"Error returned by db.FetchDataSource": {
@@ -528,15 +639,21 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 			ID: _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(0),
 				wasExecutorTestConnectionCalled(0),
+				wasDBUpdateDataSourceCalled(0),
 			),
 		},
-		"Error returned by executor.TestConnection": {
+		"Error returned by Runner.TestConnection": {
 			DB:      stubDB(stubDataSource(datasourceCore.TypePrometheus), nil),
 			Clients: &clientMocks{status: "", statusErr: assert.AnError},
 			ID:      _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
 				wasDBUpdateDataSourceCalled(0),
 			),
 		},
@@ -546,6 +663,9 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 			ID:      _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusOK, `{"status":"success"}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
 				wasDBUpdateDataSourceCalled(0),
 			),
 		},
@@ -555,6 +675,9 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 			ID:      _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusOK, `{"status":"unreachable"}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
 				wasDBUpdateDataSourceCalled(1),
 			),
 		},
@@ -569,6 +692,9 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 			ID:      _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusOK, `{"status":"invalid_encryption_key"}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
 				// the read already recorded the status, and a write here
 				// would store an encryption of the credentials it could
 				// not read in place of the ones it could not.
@@ -588,6 +714,9 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 			ID:      _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusOK, `{"status":"unreachable"}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
 				wasDBUpdateDataSourceCalled(1),
 				hasUpdateFailedLog(),
 			),
@@ -598,7 +727,7 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, nil)
 
 			req := prepRequest("POST", "http://test.com/", "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -606,7 +735,7 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 			hdl.TestDataSourceConnection(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -614,7 +743,7 @@ func Test_Handler_TestDataSourceConnection(t *testing.T) {
 
 func Test_Handler_FetchDataSources(t *testing.T) {
 	wasDBFetchDataSourcesCalled := func(count int) check {
-		return func(t *testing.T, db *DBMock, _ *runnerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
+		return func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, _ *httptest.ResponseRecorder, _ *bytes.Buffer) {
 			ff := db.FetchDataSourcesCalls()
 			require.Len(t, ff, count)
 
@@ -666,7 +795,7 @@ func Test_Handler_FetchDataSources(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, nil)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, nil, nil)
 
 			req := prepRequest("GET", "http://test.com/", "", !c.OmitSession, "")
 			rec := httptest.NewRecorder()
@@ -674,31 +803,13 @@ func Test_Handler_FetchDataSources(t *testing.T) {
 			hdl.FetchDataSources(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
 }
 
 func Test_Handler_UpdateDataSource(t *testing.T) {
-	hasUpdatedDataSourceResp := func() check {
-		return func(t *testing.T, db *DBMock, _ *runnerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
-			ff := db.UpdateDataSourceCalls()
-			require.Len(t, ff, 1)
-
-			ds := ff[0].Ds
-			require.NotNil(t, ds)
-			assert.Equal(t, "renamed-source", ds.Name)
-			assert.True(t, ds.UpdatedAt.Valid)
-
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			exp, err := json.Marshal(ds)
-			require.NoError(t, err)
-			assert.JSONEq(t, string(exp), rec.Body.String())
-		}
-	}
-
 	body := `{"name":"renamed-source"}`
 
 	cc := map[string]struct {
@@ -716,6 +827,10 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusUnauthorized, `{"code":"account.not_authenticated","message":"not authenticated"}`),
 				wasDBFetchDataSourceCalled(0),
+				wasRunnersRunnerCalled(0),
+				wasExecutorTestConnectionCalled(0),
+				wasDBUpdateDataSourceCalled(0),
+				wasRunnersEvictCalled(0),
 			),
 		},
 		"Missing data source id": {
@@ -723,6 +838,10 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusNotFound, `{"code":"general","message":"not found"}`),
 				wasDBFetchDataSourceCalled(0),
+				wasRunnersRunnerCalled(0),
+				wasExecutorTestConnectionCalled(0),
+				wasDBUpdateDataSourceCalled(0),
+				wasRunnersEvictCalled(0),
 			),
 		},
 		"Invalid JSON body": {
@@ -731,6 +850,10 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusBadRequest, `{"code":"request.invalid_json","message":"invalid JSON body"}`),
 				wasDBFetchDataSourceCalled(0),
+				wasRunnersRunnerCalled(0),
+				wasExecutorTestConnectionCalled(0),
+				wasDBUpdateDataSourceCalled(0),
+				wasRunnersEvictCalled(0),
 			),
 		},
 		"Error returned by db.FetchDataSource": {
@@ -739,7 +862,11 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 			ID:   _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(0),
 				wasExecutorTestConnectionCalled(0),
+				wasDBUpdateDataSourceCalled(0),
+				wasRunnersEvictCalled(0),
 			),
 		},
 		"Error returned by DataSource.ApplyUpdate": {
@@ -748,17 +875,25 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 			ID:   _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(0),
 				wasExecutorTestConnectionCalled(0),
+				wasDBUpdateDataSourceCalled(0),
+				wasRunnersEvictCalled(0),
 			),
 		},
-		"Error returned by executor.TestConnection": {
+		"Error returned by Runner.TestConnection": {
 			DB:      stubDB(stubDataSource(datasourceCore.TypePrometheus), nil),
 			Clients: &clientMocks{status: "", statusErr: assert.AnError},
 			Body:    body,
 			ID:      _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
 				wasDBUpdateDataSourceCalled(0),
+				wasRunnersEvictCalled(0),
 			),
 		},
 		"Unsuccessful connection status": {
@@ -768,7 +903,11 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 			ID:      _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusBadRequest, `{"code":"data_source.unreachable","message":"The data source is unreachable."}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
 				wasDBUpdateDataSourceCalled(0),
+				wasRunnersEvictCalled(0),
 			),
 		},
 		"Error returned by db.UpdateDataSource": {
@@ -785,7 +924,11 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 			ID:      _testID.String(),
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
 				wasDBUpdateDataSourceCalled(1),
+				wasRunnersEvictCalled(0),
 			),
 		},
 		"Successful update": {
@@ -794,7 +937,25 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 			Body:    body,
 			ID:      _testID.String(),
 			Checks: checks(
-				hasUpdatedDataSourceResp(),
+				func(t *testing.T, db *DBMock, _ *runnerMock, _ *VariableManagerMock, rec *httptest.ResponseRecorder, _ *bytes.Buffer) {
+					ff := db.UpdateDataSourceCalls()
+					require.Len(t, ff, 1)
+
+					ds := ff[0].Ds
+					require.NotNil(t, ds)
+					assert.Equal(t, "renamed-source", ds.Name)
+					assert.True(t, ds.UpdatedAt.Valid)
+
+					assert.Equal(t, http.StatusOK, rec.Code)
+
+					exp, err := json.Marshal(ds)
+					require.NoError(t, err)
+					assert.JSONEq(t, string(exp), rec.Body.String())
+				},
+				wasDBFetchDataSourceCalled(1),
+				wasRunnersRunnerCalled(1),
+				wasExecutorTestConnectionCalled(1),
+				wasRunnersEvictCalled(1),
 			),
 		},
 	}
@@ -803,7 +964,7 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, c.Clients)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, c.Clients, nil)
 
 			req := prepRequest("PUT", "http://test.com/", c.Body, !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -811,7 +972,7 @@ func Test_Handler_UpdateDataSource(t *testing.T) {
 			hdl.UpdateDataSource(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
 		})
 	}
@@ -830,12 +991,14 @@ func Test_Handler_DeleteDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusUnauthorized, `{"code":"account.not_authenticated","message":"not authenticated"}`),
 				wasDBDeleteDataSourceCalled(0),
+				wasRunnersEvictCalled(0),
 			),
 		},
 		"Missing data source id": {
 			Checks: checks(
 				hasResp(http.StatusNotFound, `{"code":"general","message":"not found"}`),
 				wasDBDeleteDataSourceCalled(0),
+				wasRunnersEvictCalled(0),
 			),
 		},
 		"Error returned by db.DeleteDataSource": {
@@ -848,6 +1011,7 @@ func Test_Handler_DeleteDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusInternalServerError, `{"code":"general","message":"internal server error"}`),
 				wasDBDeleteDataSourceCalled(1),
+				wasRunnersEvictCalled(0),
 			),
 		},
 		"Successful deletion": {
@@ -855,6 +1019,7 @@ func Test_Handler_DeleteDataSource(t *testing.T) {
 			Checks: checks(
 				hasResp(http.StatusNoContent, ""),
 				wasDBDeleteDataSourceCalled(1),
+				wasRunnersEvictCalled(1),
 			),
 		},
 	}
@@ -863,7 +1028,7 @@ func Test_Handler_DeleteDataSource(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, nil)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, nil, nil)
 
 			req := prepRequest("DELETE", "http://test.com/", "", !c.OmitSession, c.ID)
 			rec := httptest.NewRecorder()
@@ -871,8 +1036,73 @@ func Test_Handler_DeleteDataSource(t *testing.T) {
 			hdl.DeleteDataSource(rec, req)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, rec, logs)
+				ch(t, db, exec, vars, rec, logs)
 			}
+		})
+	}
+}
+
+func Test_Handler_substitute(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Variables *VariableManagerMock
+		Target    string
+		Texts     []string
+		Result    []string
+		Err       error
+		Checks    []check
+	}{
+		"No reference skips the tree": {
+			Texts:  []string{"up", "$__from"},
+			Result: []string{"up", "$__from"},
+			Checks: checks(wasVariableManagerFetchTreeCalled(0)),
+		},
+		"Error returned by VariableManager.FetchTree": {
+			Variables: stubVariables(assert.AnError),
+			Texts:     []string{"$metric"},
+			Err:       assert.AnError,
+			Checks:    checks(wasVariableManagerFetchTreeCalled(1)),
+		},
+		"Successful substitution": {
+			Variables: stubVariables(nil),
+			Texts:     []string{"sum($metric)", "up"},
+			Result:    []string{"sum(up)", "up"},
+			Checks:    checks(wasVariableManagerFetchTreeCalled(1)),
+		},
+		"Successful substitution with an override": {
+			Variables: stubVariables(nil),
+			Target:    "http://test.com/?var-metric=down&var-other=x&q=$metric",
+			Texts:     []string{"sum($metric)", "$other"},
+			Result:    []string{"sum(down)", "$other"},
+			Checks:    checks(wasVariableManagerFetchTreeCalled(1)),
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			hdl, db, exec, vars, logs := prepHandler(nil, nil, c.Variables)
+
+			target := c.Target
+			if target == "" {
+				target = "http://test.com/"
+			}
+
+			res, err := hdl.substitute(httptest.NewRequest(http.MethodGet, target, http.NoBody), _testSession, c.Texts...)
+
+			for _, ch := range c.Checks {
+				ch(t, db, exec, vars, httptest.NewRecorder(), logs)
+			}
+
+			testutil.AssertEqualError(t, c.Err, err)
+
+			if err != nil {
+				return
+			}
+
+			assert.Equal(t, c.Result, res)
 		})
 	}
 }
@@ -913,7 +1143,7 @@ func Test_Handler_persistDataSourceStatus(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			hdl, db, exec, logs := prepHandler(c.DB, nil)
+			hdl, db, exec, vars, logs := prepHandler(c.DB, nil, nil)
 			ds := stubDataSource(datasourceCore.TypePrometheus)
 
 			hdl.persistDataSourceStatus(prepRequest("GET", "http://test.com/", "", true, ""), ds, c.Status)
@@ -921,7 +1151,7 @@ func Test_Handler_persistDataSourceStatus(t *testing.T) {
 			assert.Equal(t, c.Result, ds.Status)
 
 			for _, ch := range c.Checks {
-				ch(t, db, exec, httptest.NewRecorder(), logs)
+				ch(t, db, exec, vars, httptest.NewRecorder(), logs)
 			}
 		})
 	}

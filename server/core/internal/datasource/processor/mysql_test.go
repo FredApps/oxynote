@@ -17,7 +17,7 @@ import (
 )
 
 func Test_MySQLQueryResult_Transform(t *testing.T) {
-	tests := map[string]struct {
+	cc := map[string]struct {
 		Result    MySQLQueryResult
 		ChartType ChartType
 		Expected  QueryResult
@@ -108,7 +108,7 @@ func Test_MySQLQueryResult_Transform(t *testing.T) {
 				},
 			},
 		},
-		"Single value column with []byte numeric values (DECIMAL)": {
+		"Single value column with []byte numeric DECIMAL values": {
 			Result: MySQLQueryResult{
 				Columns: []string{"time", "value"},
 				Rows: [][]any{
@@ -125,6 +125,31 @@ func Test_MySQLQueryResult_Transform(t *testing.T) {
 						Metrics: [][2]any{
 							{int64(1700000000), 10.5},
 							{int64(1700000060), 20.3},
+						},
+					},
+				},
+			},
+		},
+		// MySQL types a $__timeGroupAlias bucket as DECIMAL, so the time
+		// arrives as a numeric string.
+		"Time column as DECIMAL string": {
+			Result: MySQLQueryResult{
+				Columns:     []string{"time", "value"},
+				ColumnTypes: []string{"DECIMAL", "BIGINT"},
+				Rows: [][]any{
+					{"1700000000", int64(10)},
+					{"1700003600", int64(20)},
+				},
+			},
+			ChartType: ChartTypeLine,
+			Expected: QueryResult{
+				Status: QueryStatusOK,
+				Data: []QueryResultSeries{
+					{
+						Labels: map[string]string{},
+						Metrics: [][2]any{
+							{int64(1700000000), float64(10)},
+							{int64(1700003600), float64(20)},
 						},
 					},
 				},
@@ -298,13 +323,34 @@ func Test_MySQLQueryResult_Transform(t *testing.T) {
 		},
 	}
 
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			result := tc.Result.Transform(tc.ChartType)
-			require.Equal(t, tc.Expected.Status, result.Status)
-			assert.Equal(t, tc.Expected.Data, result.Data)
+			result := c.Result.Transform(c.ChartType)
+			require.Equal(t, c.Expected.Status, result.Status)
+			assert.Equal(t, c.Expected.Data, result.Data)
+		})
+	}
+}
+
+func Test_MySQLQueryResult_HasData(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Result *MySQLQueryResult
+		Has    bool
+	}{
+		"No result": {},
+		"No rows":   {Result: &MySQLQueryResult{Columns: []string{"value"}}},
+		"A row":     {Result: &MySQLQueryResult{Columns: []string{"value"}, Rows: [][]any{{int64(1)}}}, Has: true},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Has, c.Result.HasData())
 		})
 	}
 }
@@ -317,34 +363,17 @@ func Test_NewMySQL(t *testing.T) {
 	m := NewMySQL(inp)
 	require.NotNil(t, m)
 	assert.Same(t, inp, m.inp)
+	assert.Nil(t, m.db)
+	assert.False(t, m.closed)
 }
 
-func Test_MySQL_TestConnection(t *testing.T) {
+func Test_MySQL_Close(t *testing.T) {
 	cc := map[string]struct {
-		URL    string
-		Result ConnectionStatus
+		// Used indicates whether a query opened the pool before the close.
+		Used bool
 	}{
-		"Error returned by connect": {
-			URL:    "://",
-			Result: ConnectionStatusUnreachable,
-		},
-		"Unreachable database": {
-			URL:    "mysql://127.0.0.1:1/db",
-			Result: ConnectionStatusUnreachable,
-		},
-		// a refused password is not the same as a host that never answers.
-		"Wrong credentials": {
-			URL:    mysqlTestURL(_readerUser, "wrong-password"),
-			Result: ConnectionStatusUnauthorized,
-		},
-		"Not read-only user": {
-			URL:    mysqlTestURL(_mysqlRootUser, _mysqlRootPass),
-			Result: ConnectionStatusNotReadOnly,
-		},
-		"Successful read-only connection": {
-			URL:    mysqlTestURL(_readerUser, _readerPass),
-			Result: ConnectionStatusSuccess,
-		},
+		"Pool never opened": {},
+		"Pool in use":       {Used: true},
 	}
 
 	for cn, c := range cc {
@@ -352,32 +381,104 @@ func Test_MySQL_TestConnection(t *testing.T) {
 			t.Parallel()
 
 			m := NewMySQL(&InputMock{
-				URLFunc: func() string { return c.URL },
+				URLFunc: func() string {
+					return fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB)
+				},
 			})
+
+			if c.Used {
+				_, err := m.Query(context.Background(), "SELECT 1", _testTimeRange)
+				require.NoError(t, err)
+			}
+
+			require.NoError(t, m.Close())
+			assert.True(t, m.closed)
+
+			// a closed processor hands out no connection, and opens no new
+			// pool that nothing would close.
+			_, err := m.connect()
+			testutil.AssertEqualError(t, _errClosed, err)
+
+			if c.Used {
+				require.NotNil(t, m.db)
+				assert.Error(t, m.db.PingContext(context.Background()))
+			}
+		})
+	}
+}
+
+func Test_MySQL_TestConnection(t *testing.T) {
+	cc := map[string]struct {
+		URL              string
+		Result           ConnectionStatus
+		CredentialsCalls int
+	}{
+		"Error returned by connect": {
+			URL:    "://",
+			Result: ConnectionStatusUnreachable,
+		},
+		"Unreachable database": {
+			URL:              "mysql://127.0.0.1:1/db",
+			Result:           ConnectionStatusUnreachable,
+			CredentialsCalls: 1,
+		},
+		// a refused password is not the same as a host that never answers.
+		"Wrong credentials": {
+			URL:              fmt.Sprintf("mysql://%s:%s@%s/%s", _readerUser, "wrong-password", _mysqlAddr, _testDB),
+			Result:           ConnectionStatusUnauthorized,
+			CredentialsCalls: 1,
+		},
+		"Not read-only user": {
+			URL:              fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB),
+			Result:           ConnectionStatusNotReadOnly,
+			CredentialsCalls: 1,
+		},
+		"Successful read-only connection": {
+			URL:              fmt.Sprintf("mysql://%s:%s@%s/%s", _readerUser, _readerPass, _mysqlAddr, _testDB),
+			Result:           ConnectionStatusSuccess,
+			CredentialsCalls: 1,
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			inp := &InputMock{
+				URLFunc: func() string { return c.URL },
+			}
+
+			m := NewMySQL(inp)
+
+			t.Cleanup(func() { assert.NoError(t, m.Close()) })
 
 			cs, err := m.TestConnection(context.Background())
 			require.NoError(t, err)
 			assert.Equal(t, c.Result, cs)
+			assert.Len(t, inp.URLCalls(), 1)
+			assert.Len(t, inp.CredentialsCalls(), c.CredentialsCalls)
 		})
 	}
 }
 
 func Test_MySQL_Metadata(t *testing.T) {
 	cc := map[string]struct {
-		URL    string
-		Result *SQLMetadataResult
-		Err    error
+		URL              string
+		Result           *SQLMetadataResult
+		Err              error
+		CredentialsCalls int
 	}{
 		"Error returned by connect": {
 			URL: "://",
 			Err: assert.AnError,
 		},
 		"Unreachable database": {
-			URL: "mysql://127.0.0.1:1/db",
-			Err: assert.AnError,
+			URL:              "mysql://127.0.0.1:1/db",
+			Err:              assert.AnError,
+			CredentialsCalls: 1,
 		},
 		"Successful retrieval": {
-			URL: mysqlTestURL(_mysqlRootUser, _mysqlRootPass),
+			URL: fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB),
 			Result: &SQLMetadataResult{
 				Tables: map[string]SQLTable{
 					"testdb.metrics": {
@@ -397,6 +498,7 @@ func Test_MySQL_Metadata(t *testing.T) {
 				},
 				DefaultSchema: "testdb",
 			},
+			CredentialsCalls: 1,
 		},
 	}
 
@@ -404,12 +506,18 @@ func Test_MySQL_Metadata(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			m := NewMySQL(&InputMock{
+			inp := &InputMock{
 				URLFunc: func() string { return c.URL },
-			})
+			}
+
+			m := NewMySQL(inp)
+
+			t.Cleanup(func() { assert.NoError(t, m.Close()) })
 
 			result, err := m.Metadata(context.Background())
 			testutil.AssertEqualError(t, c.Err, err)
+			assert.Len(t, inp.URLCalls(), 1)
+			assert.Len(t, inp.CredentialsCalls(), c.CredentialsCalls)
 
 			if err != nil {
 				return
@@ -422,11 +530,12 @@ func Test_MySQL_Metadata(t *testing.T) {
 
 func Test_MySQL_QueryLabels(t *testing.T) {
 	cc := map[string]struct {
-		URL       string
-		Query     string
-		Result    map[string]string
-		ErrStatus int
-		Err       error
+		URL              string
+		Query            string
+		Result           map[string]string
+		ErrStatus        int
+		Err              error
+		CredentialsCalls int
 	}{
 		"Error returned by connect": {
 			URL:   "://",
@@ -434,22 +543,25 @@ func Test_MySQL_QueryLabels(t *testing.T) {
 			Err:   assert.AnError,
 		},
 		"Unreachable database": {
-			URL:   "mysql://127.0.0.1:1/db",
-			Query: "SELECT 1",
-			Err:   assert.AnError,
+			URL:              "mysql://127.0.0.1:1/db",
+			Query:            "SELECT 1",
+			Err:              assert.AnError,
+			CredentialsCalls: 1,
 		},
 		"Invalid query error": {
-			URL:       mysqlTestURL(_mysqlRootUser, _mysqlRootPass),
-			Query:     "SELECT bogus FROM",
-			ErrStatus: http.StatusBadRequest,
-			Err:       assert.AnError,
+			URL:              fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB),
+			Query:            "SELECT bogus FROM",
+			ErrStatus:        http.StatusBadRequest,
+			Err:              assert.AnError,
+			CredentialsCalls: 1,
 		},
 		"Successful retrieval": {
-			URL:   mysqlTestURL(_mysqlRootUser, _mysqlRootPass),
+			URL:   fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB),
 			Query: "SELECT time, host, value FROM metrics ORDER BY time",
 			// only the text column produces a label; the numeric
 			// columns come back typed and are skipped.
-			Result: map[string]string{"host": "web-1"},
+			Result:           map[string]string{"host": "web-1"},
+			CredentialsCalls: 1,
 		},
 	}
 
@@ -457,12 +569,18 @@ func Test_MySQL_QueryLabels(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			m := NewMySQL(&InputMock{
+			inp := &InputMock{
 				URLFunc: func() string { return c.URL },
-			})
+			}
+
+			m := NewMySQL(inp)
+
+			t.Cleanup(func() { assert.NoError(t, m.Close()) })
 
 			labels, err := m.QueryLabels(context.Background(), c.Query, _testTimeRange)
 			testutil.AssertEqualError(t, c.Err, err)
+			assert.Len(t, inp.URLCalls(), 1)
+			assert.Len(t, inp.CredentialsCalls(), c.CredentialsCalls)
 
 			if c.ErrStatus != 0 {
 				assert.Equal(t, c.ErrStatus, errutil.StatusCode(err, false))
@@ -478,12 +596,28 @@ func Test_MySQL_QueryLabels(t *testing.T) {
 }
 
 func Test_MySQL_Query(t *testing.T) {
+	rootURL := fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB)
+
+	// connectionID reads the id of the connection a query runs on.
+	connectionID := func(t *testing.T, m *MySQL) any {
+		t.Helper()
+
+		res, err := m.Query(context.Background(), "SELECT CONNECTION_ID()", _testTimeRange)
+		require.NoError(t, err)
+		require.Len(t, res.Rows, 1)
+
+		return res.Rows[0][0]
+	}
+
 	cc := map[string]struct {
-		URL       string
-		Query     string
-		Result    *MySQLQueryResult
-		ErrStatus int
-		Err       error
+		URL string
+
+		Query            string
+		Result           *MySQLQueryResult
+		ErrStatus        int
+		Err              error
+		CredentialsCalls int
+		Check            func(t *testing.T, m *MySQL)
 	}{
 		"Error returned by connect": {
 			URL:   "://",
@@ -491,37 +625,69 @@ func Test_MySQL_Query(t *testing.T) {
 			Err:   assert.AnError,
 		},
 		"Unreachable database": {
-			URL:   "mysql://127.0.0.1:1/db",
-			Query: "SELECT 1",
-			Err:   assert.AnError,
+			URL:              "mysql://127.0.0.1:1/db",
+			Query:            "SELECT 1",
+			Err:              assert.AnError,
+			CredentialsCalls: 1,
 		},
 		"Invalid query error": {
-			URL:       mysqlTestURL(_mysqlRootUser, _mysqlRootPass),
-			Query:     "SELECT bogus FROM",
-			ErrStatus: http.StatusBadRequest,
-			Err:       assert.AnError,
+			URL:              fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB),
+			Query:            "SELECT bogus FROM",
+			ErrStatus:        http.StatusBadRequest,
+			Err:              assert.AnError,
+			CredentialsCalls: 1,
 		},
 		// a DECIMAL arrives as bytes exactly like a VARCHAR does, so only
 		// the declared type separates the value column from the label.
 		"Decimal column keeps its declared type": {
-			URL:   mysqlTestURL(_mysqlRootUser, _mysqlRootPass),
+			URL:   fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB),
 			Query: "SELECT time, code, total FROM typed_metrics",
 			Result: &MySQLQueryResult{
 				Columns:     []string{"time", "code", "total"},
 				ColumnTypes: []string{"BIGINT", "VARCHAR", "DECIMAL"},
-				Rows:        [][]any{{int64(1700000000), "200", "10.50"}},
+				Rows:        [][]any{{float64(1700000000), "200", "10.50"}},
 			},
+			CredentialsCalls: 1,
+		},
+		// rows come back in the shape JSON gives them, so a cached copy
+		// draws the same chart as the fresh one.
+		"FLOAT, unsigned BIGINT and DATE columns": {
+			URL:   fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB),
+			Query: "SELECT CAST(1.5 AS FLOAT) AS ratio, CAST(9223372036854775808 AS UNSIGNED) AS hits, DATE('2024-01-01') AS day",
+			Result: &MySQLQueryResult{
+				Columns:     []string{"ratio", "hits", "day"},
+				ColumnTypes: []string{"FLOAT", "UNSIGNED BIGINT", "DATE"},
+				Rows:        [][]any{{1.5, float64(9223372036854775808), "2024-01-01T00:00:00Z"}},
+			},
+			CredentialsCalls: 1,
 		},
 		"Successful query": {
-			URL:   mysqlTestURL(_mysqlRootUser, _mysqlRootPass),
+			URL:   fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB),
 			Query: "SELECT time, host, value FROM metrics ORDER BY time",
 			Result: &MySQLQueryResult{
 				Columns:     []string{"time", "host", "value"},
 				ColumnTypes: []string{"BIGINT", "VARCHAR", "DOUBLE"},
 				Rows: [][]any{
-					{int64(1700000000), "web-1", 10.5},
-					{int64(1700000060), "web-2", 20.5},
+					{float64(1700000000), "web-1", 10.5},
+					{float64(1700000060), "web-2", 20.5},
 				},
+			},
+			CredentialsCalls: 1,
+		},
+		"A plain read keeps its connection": {
+			URL:   rootURL,
+			Query: "SELECT 1 AS one",
+			Result: &MySQLQueryResult{
+				Columns:     []string{"one"},
+				ColumnTypes: []string{"INT"},
+				Rows:        [][]any{{float64(1)}},
+			},
+			CredentialsCalls: 1,
+			Check: func(t *testing.T, m *MySQL) {
+				t.Helper()
+
+				first := connectionID(t, m)
+				assert.Equal(t, first, connectionID(t, m))
 			},
 		},
 	}
@@ -530,15 +696,39 @@ func Test_MySQL_Query(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			m := NewMySQL(&InputMock{
+			inp := &InputMock{
 				URLFunc: func() string { return c.URL },
-			})
+			}
+
+			m := NewMySQL(inp)
+
+			t.Cleanup(func() { assert.NoError(t, m.Close()) })
+
+			// with all but one connection held until the test ends, every
+			// query lands on the one left.
+			if c.Check != nil {
+				db, derr := m.connect()
+				require.NoError(t, derr)
+
+				for range _mysqlMaxConns - 1 {
+					held, cerr := db.Conn(context.Background())
+					require.NoError(t, cerr)
+
+					t.Cleanup(func() { assert.NoError(t, held.Close()) })
+				}
+			}
 
 			result, err := m.Query(context.Background(), c.Query, _testTimeRange)
 			testutil.AssertEqualError(t, c.Err, err)
+			assert.Len(t, inp.URLCalls(), 1)
+			assert.Len(t, inp.CredentialsCalls(), c.CredentialsCalls)
 
 			if c.ErrStatus != 0 {
 				assert.Equal(t, c.ErrStatus, errutil.StatusCode(err, false))
+			}
+
+			if c.Check != nil {
+				c.Check(t, m)
 			}
 
 			if err != nil {
@@ -551,92 +741,24 @@ func Test_MySQL_Query(t *testing.T) {
 }
 
 func Test_MySQL_connect(t *testing.T) {
-	t.Parallel()
-
-	// buildDSN error
-	m := NewMySQL(&InputMock{
-		URLFunc: func() string { return "://" },
-	})
-
-	_, err := m.connect(context.Background())
-	assert.Error(t, err)
-
-	// read-only session error
-	m = NewMySQL(&InputMock{
-		URLFunc: func() string { return "mysql://127.0.0.1:1/db" },
-	})
-
-	_, err = m.connect(context.Background())
-	assert.Error(t, err)
-
-	// the session refuses writes even for a user whose grants allow them.
-	m = NewMySQL(&InputMock{
-		URLFunc: func() string { return mysqlTestURL(_mysqlRootUser, _mysqlRootPass) },
-	})
-
-	db, err := m.connect(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, db)
-
-	_, err = db.ExecContext(context.Background(), "DELETE FROM metrics")
-	assert.Error(t, err)
-
-	require.NoError(t, db.Close())
-}
-
-func Test_MySQL_buildDSN(t *testing.T) {
 	cc := map[string]struct {
-		URL      string
-		Creds    Credentials
-		User     string
-		Password string
-		Addr     string
-		DBName   string
-		TLS      string
-		Err      error
+		URL              string
+		Closed           bool
+		Err              error
+		CredentialsCalls int
 	}{
-		"Error returned by url.Parse": {
+		"Error returned by buildDSN": {
 			URL: "://",
 			Err: assert.AnError,
 		},
-		"Error returned by unmarshaling credentials": {
-			URL:   "mysql://dbhost/mydb",
-			Creds: NewCredentials([]byte(`{`)),
-			Err:   assert.AnError,
+		"Closed processor": {
+			URL:    "mysql://127.0.0.1:1/db",
+			Closed: true,
+			Err:    _errClosed,
 		},
-		"URL credentials with default port": { //nolint:gosec // static test credentials
-			URL:      "mysql://urluser:urlpass@dbhost/mydb",
-			User:     "urluser",
-			Password: "urlpass",
-			Addr:     "dbhost:3306",
-			DBName:   "mydb",
-		},
-		"Credentials override url user": { //nolint:gosec // static test credentials
-			URL:      "mysql://urluser:urlpass@dbhost:3307/mydb",
-			Creds:    NewCredentials([]byte(`{"username":"credsuser","password":"credspass"}`)),
-			User:     "credsuser",
-			Password: "credspass",
-			Addr:     "dbhost:3307",
-			DBName:   "mydb",
-		},
-		"Empty credentials keep url user": { //nolint:gosec // static test credentials
-			URL:      "mysql://urluser:urlpass@dbhost:3307/mydb",
-			Creds:    NewCredentials([]byte(`{"username":"","password":""}`)),
-			User:     "urluser",
-			Password: "urlpass",
-			Addr:     "dbhost:3307",
-			DBName:   "mydb",
-		},
-		"TLS parameter is carried over": {
-			URL:    "mysql://dbhost/mydb?tls=true",
-			Addr:   "dbhost:3306",
-			DBName: "mydb",
-			TLS:    "true",
-		},
-		"No user info": {
-			URL:    "mysql://dbhost/mydb",
-			Addr:   "dbhost:3306",
-			DBName: "mydb",
+		"Successful pool": {
+			URL:              fmt.Sprintf("mysql://%s:%s@%s/%s", _mysqlRootUser, _mysqlRootPass, _mysqlAddr, _testDB),
+			CredentialsCalls: 1,
 		},
 	}
 
@@ -644,13 +766,117 @@ func Test_MySQL_buildDSN(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			m := NewMySQL(&InputMock{
+			inp := &InputMock{
+				URLFunc: func() string { return c.URL },
+			}
+
+			m := NewMySQL(inp)
+
+			t.Cleanup(func() { assert.NoError(t, m.Close()) })
+
+			if c.Closed {
+				require.NoError(t, m.Close())
+			}
+
+			db, err := m.connect()
+			testutil.AssertEqualError(t, c.Err, err)
+			assert.Len(t, inp.CredentialsCalls(), c.CredentialsCalls)
+
+			if err != nil {
+				assert.Nil(t, m.db)
+				return
+			}
+
+			require.NotNil(t, db)
+			assert.Equal(t, _mysqlMaxConns, db.Stats().MaxOpenConnections)
+
+			// the pool is opened once and handed to every later call.
+			again, err := m.connect()
+			require.NoError(t, err)
+			assert.Same(t, db, again)
+			assert.Len(t, inp.URLCalls(), 1)
+		})
+	}
+}
+
+func Test_MySQL_buildDSN(t *testing.T) {
+	cc := map[string]struct {
+		URL              string
+		Creds            Credentials
+		User             string
+		Password         string
+		Addr             string
+		DBName           string
+		TLS              string
+		Err              error
+		CredentialsCalls int
+	}{
+		"Error returned by url.Parse": {
+			URL: "://",
+			Err: assert.AnError,
+		},
+		"Error returned by json.Unmarshal": {
+			URL:              "mysql://dbhost/mydb",
+			Creds:            NewCredentials([]byte(`{`)),
+			Err:              assert.AnError,
+			CredentialsCalls: 1,
+		},
+		"URL credentials with default port": { //nolint:gosec // static test credentials
+			URL:              "mysql://urluser:urlpass@dbhost/mydb",
+			User:             "urluser",
+			Password:         "urlpass",
+			Addr:             "dbhost:3306",
+			DBName:           "mydb",
+			CredentialsCalls: 1,
+		},
+		"Credentials override url user": { //nolint:gosec // static test credentials
+			URL:              "mysql://urluser:urlpass@dbhost:3307/mydb",
+			Creds:            NewCredentials([]byte(`{"username":"credsuser","password":"credspass"}`)),
+			User:             "credsuser",
+			Password:         "credspass",
+			Addr:             "dbhost:3307",
+			DBName:           "mydb",
+			CredentialsCalls: 1,
+		},
+		"Empty credentials keep url user": { //nolint:gosec // static test credentials
+			URL:              "mysql://urluser:urlpass@dbhost:3307/mydb",
+			Creds:            NewCredentials([]byte(`{"username":"","password":""}`)),
+			User:             "urluser",
+			Password:         "urlpass",
+			Addr:             "dbhost:3307",
+			DBName:           "mydb",
+			CredentialsCalls: 1,
+		},
+		"TLS parameter is carried over": {
+			URL:              "mysql://dbhost/mydb?tls=true",
+			Addr:             "dbhost:3306",
+			DBName:           "mydb",
+			TLS:              "true",
+			CredentialsCalls: 1,
+		},
+		"No user info": {
+			URL:              "mysql://dbhost/mydb",
+			Addr:             "dbhost:3306",
+			DBName:           "mydb",
+			CredentialsCalls: 1,
+		},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			inp := &InputMock{
 				URLFunc:         func() string { return c.URL },
 				CredentialsFunc: func() Credentials { return c.Creds },
-			})
+			}
+
+			m := NewMySQL(inp)
 
 			dsn, err := m.buildDSN()
 			testutil.AssertEqualError(t, c.Err, err)
+			assert.Len(t, inp.URLCalls(), 1)
+			assert.Len(t, inp.CredentialsCalls(), c.CredentialsCalls)
 
 			if err != nil {
 				return
@@ -684,7 +910,7 @@ func Test_mysqlCheckReadOnly(t *testing.T) {
 			Rows: sqlmock.NewRows([]string{"grants"}).AddRow(nil),
 			Err:  assert.AnError,
 		},
-		"Error returned by rows iteration": {
+		"Error returned by rows.Err": {
 			Rows: sqlmock.NewRows([]string{"grants"}).
 				AddRow("GRANT SELECT ON *.* TO 'u'@'%'").
 				AddRow("GRANT SELECT ON *.* TO 'u'@'%'").
@@ -752,12 +978,41 @@ func Test_mysqlCheckReadOnly(t *testing.T) {
 
 			readOnly, err := mysqlCheckReadOnly(context.Background(), db)
 			testutil.AssertEqualError(t, c.Err, err)
+			assert.NoError(t, mock.ExpectationsWereMet())
 
 			if err != nil {
 				return
 			}
 
 			assert.Equal(t, c.Result, readOnly)
+		})
+	}
+}
+
+func Test_mysqlNormalizeValue(t *testing.T) {
+	t.Parallel()
+
+	cc := map[string]struct {
+		Value  any
+		Result any
+	}{
+		"Bytes become a string":           {Value: []byte("web-1"), Result: "web-1"},
+		"FLOAT becomes float64":           {Value: float32(1.5), Result: 1.5},
+		"BIGINT becomes float64":          {Value: int64(7), Result: float64(7)},
+		"Unsigned BIGINT becomes float64": {Value: uint64(5), Result: float64(5)},
+		"Date becomes an RFC3339 string": {
+			Value:  time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			Result: "2024-01-01T00:00:00Z",
+		},
+		"Anything else is kept": {Value: "web-1", Result: "web-1"},
+		"Null is kept":          {},
+	}
+
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.Result, mysqlNormalizeValue(c.Value))
 		})
 	}
 }
@@ -778,11 +1033,6 @@ func Test_mysqlParseTimestamp(t *testing.T) {
 			Result: 1700000000,
 			OK:     true,
 		},
-		"Time value": {
-			Value:  time.Date(2023, 11, 14, 22, 13, 20, 0, time.UTC),
-			Result: 1700000000,
-			OK:     true,
-		},
 		"RFC3339 string": {
 			Value:  "2023-11-14T22:13:20Z",
 			Result: 1700000000,
@@ -790,6 +1040,11 @@ func Test_mysqlParseTimestamp(t *testing.T) {
 		},
 		"RFC3339 string with fraction": {
 			Value:  "2023-11-14T22:13:20.5Z",
+			Result: 1700000000,
+			OK:     true,
+		},
+		"Numeric string": {
+			Value:  "1700000000",
 			Result: 1700000000,
 			OK:     true,
 		},

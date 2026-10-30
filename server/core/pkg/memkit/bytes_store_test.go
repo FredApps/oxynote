@@ -7,12 +7,13 @@ import (
 
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/oxynote/oxynote/server/core/pkg/errutil"
+	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_NewBytesStore(t *testing.T) {
-	bs := NewBytesStore(time.Hour * 168)
+	bs := NewBytesStore(time.Hour*168, 0)
 	require.NotNil(t, bs)
 	require.NotNil(t, bs.cache)
 
@@ -24,7 +25,7 @@ func Test_NewBytesStore(t *testing.T) {
 func Test_BytesStore_Start(t *testing.T) {
 	t.Parallel()
 
-	bs := NewBytesStore(time.Hour * 168)
+	bs := NewBytesStore(time.Hour*168, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -67,7 +68,7 @@ func Test_BytesStore_Set(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			bs := NewBytesStore(time.Hour * 168)
+			bs := NewBytesStore(time.Hour*168, 0)
 
 			if c.Existing != nil {
 				bs.cache.Set("test", c.Existing, ttlcache.DefaultTTL)
@@ -136,15 +137,13 @@ func Test_BytesStore_Get(t *testing.T) {
 			}
 
 			res, err := bs.Get(context.Background(), "test")
+			testutil.AssertEqualError(t, c.Err, err)
 
-			if c.Err != nil {
+			if err != nil {
 				assert.Nil(t, res)
-				assert.Equal(t, c.Err, err)
-
 				return
 			}
 
-			assert.NoError(t, err)
 			assert.Equal(t, c.Result, res)
 
 			// the payload is copied out, so mutating it cannot reach
@@ -170,7 +169,7 @@ func Test_BytesStore_Delete(t *testing.T) {
 		t.Run(cn, func(t *testing.T) {
 			t.Parallel()
 
-			bs := NewBytesStore(time.Hour * 168)
+			bs := NewBytesStore(time.Hour*168, 0)
 
 			if c.Stored != nil {
 				bs.cache.Set("test", c.Stored, ttlcache.DefaultTTL)

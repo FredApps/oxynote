@@ -57,15 +57,16 @@ func Test_NewDataSource(t *testing.T) {
 	assert.False(t, ds.UpdatedAt.Valid)
 }
 
-func Test_NewDemoDataSource(t *testing.T) {
+func Test_NewDemoDataSources(t *testing.T) {
 	t.Parallel()
 
-	ds := NewDemoDataSource("org-1")
+	dd := NewDemoDataSources("org-1")
+	require.Len(t, dd, 1)
 
-	require.NotNil(t, ds)
+	ds := dd[0]
 	assert.False(t, ds.ID.IsNil())
 	assert.Equal(t, "org-1", ds.OrganizationID)
-	assert.Equal(t, "Demo", ds.Name)
+	assert.Equal(t, "Demo Metrics", ds.Name)
 	assert.Equal(t, TypePrometheus, ds.Type)
 	assert.Equal(t, demo.URL, ds.URL)
 	assert.Equal(t, processor.NewCredentials([]byte(`{}`)), ds.Credentials)
@@ -194,7 +195,7 @@ func Test_DataSource_updateCredentials(t *testing.T) {
 			},
 			Creds: processor.NewCredentials([]byte(`{"username":"old","password":""}`)),
 		},
-		"Error returned by processor.UpdatePrometheusCredentials": {
+		"Error returned by processor.UpdateBasicCredentials for prometheus": {
 			DataSource: &DataSource{Type: TypePrometheus},
 			Inp:        null.ValueFrom(processor.CredentialsUpdateInput(`{`)),
 			Err:        assert.AnError,
@@ -204,7 +205,7 @@ func Test_DataSource_updateCredentials(t *testing.T) {
 			Inp:        null.ValueFrom(processor.CredentialsUpdateInput(`{"username":"user"}`)),
 			Creds:      processor.NewCredentials([]byte(`{"username":"user","password":""}`)),
 		},
-		"Error returned by processor.UpdatePostgreSQLCredentials": {
+		"Error returned by processor.UpdateBasicCredentials for postgresql": {
 			DataSource: &DataSource{Type: TypePostgreSQL},
 			Inp:        null.ValueFrom(processor.CredentialsUpdateInput(`{`)),
 			Err:        assert.AnError,
@@ -214,7 +215,7 @@ func Test_DataSource_updateCredentials(t *testing.T) {
 			Inp:        null.ValueFrom(processor.CredentialsUpdateInput(`{"username":"user"}`)),
 			Creds:      processor.NewCredentials([]byte(`{"username":"user","password":""}`)),
 		},
-		"Error returned by processor.UpdateMySQLCredentials": {
+		"Error returned by processor.UpdateBasicCredentials for mariadb": {
 			DataSource: &DataSource{Type: TypeMariaDB},
 			Inp:        null.ValueFrom(processor.CredentialsUpdateInput(`{`)),
 			Err:        assert.AnError,
@@ -226,6 +227,11 @@ func Test_DataSource_updateCredentials(t *testing.T) {
 		},
 		"Successful mysql update": {
 			DataSource: &DataSource{Type: TypeMySQL},
+			Inp:        null.ValueFrom(processor.CredentialsUpdateInput(`{"username":"user"}`)),
+			Creds:      processor.NewCredentials([]byte(`{"username":"user","password":""}`)),
+		},
+		"Successful loki update": {
+			DataSource: &DataSource{Type: TypeLoki},
 			Inp:        null.ValueFrom(processor.CredentialsUpdateInput(`{"username":"user"}`)),
 			Creds:      processor.NewCredentials([]byte(`{"username":"user","password":""}`)),
 		},

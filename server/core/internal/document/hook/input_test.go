@@ -7,6 +7,7 @@ import (
 	"github.com/oxynote/oxynote/server/core/internal/apps/github"
 	"github.com/oxynote/oxynote/server/core/internal/apps/webchange"
 	"github.com/oxynote/oxynote/server/core/internal/document/hook/processor"
+	"github.com/oxynote/oxynote/server/core/pkg/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +42,7 @@ func Test_Input_Github(t *testing.T) {
 
 	// the unconfigured manager surfaces its sentinel through the getter.
 	_, err := inp.Github(context.Background())
-	assert.ErrorIs(t, err, github.ErrNotConfigured)
+	testutil.AssertEqualError(t, github.ErrNotConfigured, err)
 }
 
 func Test_Input_ChangeDetection(t *testing.T) {
@@ -55,7 +56,7 @@ func Test_Input_ChangeDetection(t *testing.T) {
 func Test_stateInput_State(t *testing.T) {
 	t.Parallel()
 
-	state := processor.State(`{"startedAt": "2026-01-01T00:00:00Z"}`)
+	state := processor.State(`{"watcherId": "w1"}`)
 
 	si := newStateInput(NewInput("org-1", nil, nil), state)
 

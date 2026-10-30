@@ -15,7 +15,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/oxynote/oxynote/server/core/pkg/testutil"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,16 +60,6 @@ func newFakeRegistryImage(t *testing.T, unauthorized bool) (string, string) {
 	return strings.TrimPrefix(authSrv.URL, "http://") + "/test/img:v1", digest.String()
 }
 
-// imageWatcherState marshals a container-image-watcher state for tests.
-func imageWatcherState(t *testing.T, digest string) State {
-	t.Helper()
-
-	raw, err := json.Marshal(ContainerImageWatcherState{Digest: digest})
-	require.NoError(t, err)
-
-	return State(raw)
-}
-
 func Test_ContainerImageWatcher_Validate(t *testing.T) {
 	t.Parallel()
 
@@ -103,10 +92,10 @@ func Test_ContainerImageWatcher_Process(t *testing.T) {
 		// Stale has the state hold an old digest instead of the current one.
 		Stale bool
 		// State is sent instead of a state built from the digest.
-		State  State
-		Status Status
-		Score  decimal.Decimal
-		Err    error
+		State     State
+		Status    Status
+		Triggered bool
+		Err       error
 	}{
 		"Malformed state": {
 			Image: "INVALID image ref",
@@ -125,14 +114,13 @@ func Test_ContainerImageWatcher_Process(t *testing.T) {
 			Missing: true,
 			Status:  StatusImageNotFound,
 		},
-		"Changed digest drops the score to zero": {
-			Stale:  true,
-			Status: StatusActive,
-			Score:  decimal.Zero,
+		"Changed digest triggers": {
+			Stale:     true,
+			Status:    StatusActive,
+			Triggered: true,
 		},
-		"Unchanged digest keeps the full score": {
+		"Unchanged digest is not triggered": {
 			Status: StatusActive,
-			Score:  decimal.NewFromInt(100),
 		},
 	}
 
@@ -155,7 +143,10 @@ func Test_ContainerImageWatcher_Process(t *testing.T) {
 
 			state := c.State
 			if state == nil {
-				state = imageWatcherState(t, digest)
+				raw, err := json.Marshal(ContainerImageWatcherState{Digest: digest})
+				require.NoError(t, err)
+
+				state = State(raw)
 			}
 
 			res, err := (&ContainerImageWatcher{Image: image}).Process(context.Background(), stubInput{state: state})
@@ -166,7 +157,7 @@ func Test_ContainerImageWatcher_Process(t *testing.T) {
 			}
 
 			assert.Equal(t, c.Status, res.Status)
-			assert.True(t, res.Score.Equal(c.Score), "score %s", res.Score)
+			assert.Equal(t, c.Triggered, res.Triggered)
 
 			if c.Status != StatusActive {
 				assert.Nil(t, res.State)
@@ -185,15 +176,14 @@ func Test_ContainerImageWatcher_Reset(t *testing.T) {
 	cc := map[string]struct {
 		Unauthorized bool
 		Status       Status
-		Score        decimal.Decimal
+		Triggered    bool
 	}{
 		"Unauthorized registry is a status": {
 			Unauthorized: true,
 			Status:       StatusUnauthorized,
 		},
-		"Reset adopts the current digest at full score": {
+		"Reset adopts the current digest untriggered": {
 			Status: StatusActive,
-			Score:  decimal.NewFromInt(100),
 		},
 	}
 
@@ -207,7 +197,7 @@ func Test_ContainerImageWatcher_Reset(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, c.Status, res.Status)
-			assert.True(t, res.Score.Equal(c.Score), "score %s", res.Score)
+			assert.Equal(t, c.Triggered, res.Triggered)
 
 			if c.Status != StatusActive {
 				assert.Nil(t, res.State)
@@ -215,7 +205,9 @@ func Test_ContainerImageWatcher_Reset(t *testing.T) {
 				return
 			}
 
-			assert.Equal(t, imageWatcherState(t, digest), res.State)
+			raw, err := json.Marshal(ContainerImageWatcherState{Digest: digest})
+			require.NoError(t, err)
+			assert.Equal(t, State(raw), res.State)
 		})
 	}
 }

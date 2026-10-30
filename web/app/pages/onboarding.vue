@@ -3,8 +3,8 @@ import { toTypedSchema } from "@vee-validate/zod"
 import { useForm } from "vee-validate"
 import * as z from "zod"
 // for some reason this isn't auto imported
-import { FormField as ShadcnUiFormField } from "@/components/shadcn/ui/form"
-import { cn } from "~/lib/utils"
+import { FormField as ShadcnUiFormField } from "#layers/ui/app/components/shadcn/ui/form"
+import { cn } from "#layers/ui/app/lib/utils"
 import { showToastMessage } from "~/components/toast"
 
 definePageMeta({
@@ -59,6 +59,7 @@ const onSubmit = form.handleSubmit(async (values) => {
 	loading.value = "submit"
 	await delay(300) // show loading spinner for at least a moment
 
+	// NOCOV: the empty side is unreachable. The form rules require a slug.
 	if (values.workspaceSlug) {
 		const res = (await checkOrganizationSlug({
 			slug: values.workspaceSlug,
